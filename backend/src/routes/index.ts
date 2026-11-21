@@ -1,4 +1,7 @@
+
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
+
 import authRoutes from './authRoutes';
 import investigationRoutes from './investigationRoutes';
 import analysisRoutes from './analysisRoutes';
@@ -9,9 +12,13 @@ import recoveryRoutes from './recoveryRoutes';
 
 const router = Router();
 
-// Health Check
-router.get('/health', (req, res) => {
+// ========================================
+// HEALTH CHECK
+// ========================================
+
+router.get('/health', (_req, res) => {
   res.status(200).json({
+    success: true,
     status: 'healthy',
     product: 'SmartShield AI',
     version: '1.0.0',
@@ -20,7 +27,27 @@ router.get('/health', (req, res) => {
   });
 });
 
-router.use('/auth', authRoutes);
+// ========================================
+// AUTHENTICATION RATE LIMITER
+// ========================================
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: 'Too many authentication attempts. Please try again later.',
+  },
+});
+
+router.use('/auth', authLimiter, authRoutes);
+
+// ========================================
+// MAIN API MODULES
+// ========================================
+
 router.use('/investigations', investigationRoutes);
 router.use('/analyze', analysisRoutes);
 router.use('/payment', paymentRoutes);

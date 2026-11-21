@@ -1,4 +1,9 @@
-import { ThreatIndicator, ExtractedEntities, InvestigationRelationship } from '../types';
+
+import {
+  ThreatIndicator,
+  ExtractedEntities,
+  InvestigationRelationship,
+} from '../types';
 
 export interface AgentResult {
   agentName: string;

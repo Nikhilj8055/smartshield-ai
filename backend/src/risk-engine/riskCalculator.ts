@@ -1,3 +1,4 @@
+
 import {
   ThreatIndicator,
   RiskAssessment,
@@ -7,17 +8,18 @@ import {
   IndicatorCategory,
 } from '../types';
 
-export const SCORING_VERSION = '1.2.0';
+export const SCORING_VERSION = '1.4.0';
 
-// Configurable Base Severity Weights
-const SEVERITY_WEIGHTS: Record<'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL', number> = {
+const SEVERITY_WEIGHTS: Record<
+  'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL',
+  number
+> = {
   LOW: 10,
   MEDIUM: 25,
   HIGH: 45,
   CRITICAL: 75,
 };
 
-// Dampeners across repetitive signals within the same category to prevent artificial inflation
 const CATEGORY_MAX_SCORES: Record<IndicatorCategory, number> = {
   COERCION: 80,
   REMOTE_ACCESS: 85,
@@ -25,127 +27,165 @@ const CATEGORY_MAX_SCORES: Record<IndicatorCategory, number> = {
   IMPERSONATION: 65,
   MALICIOUS_LINK: 75,
   CREDENTIAL_HARVESTING: 70,
-  URGENCY: 40, // Urgency alone should never push directly into critical without other vectors
+  URGENCY: 40,
   IDENTITY_DECEPTION: 50,
 };
 
+const SEVERITY_RANK: Record<string, number> = {
+  LOW: 1,
+  MEDIUM: 2,
+  HIGH: 3,
+  CRITICAL: 4,
+};
+
+const VERIFICATION_RANK: Record<string, number> = {
+  DISMISSED: 0,
+  USER_REPORTED: 1,
+  AUTOMATED_MATCH: 2,
+  INTELLIGENCE_CONFIRMED: 3,
+};
+
 export class DeterministicRiskCalculator {
+
   /**
-   * Computes mathematical risk score and level from structured indicators.
-   * Does NOT permit LLM hallucination or arbitrary score invention.
+   * Supports confidence in either decimal (0-1)
+   * or percentage (0-100) format.
    */
+  private normalizeConfidence(value: number): number {
+    if (!Number.isFinite(value)) {
+      return 0;
+    }
+
+    const normalized = value <= 1
+      ? value * 100
+      : value;
+
+    return Math.max(0, Math.min(100, normalized));
+  }
+
   public calculateRisk(
     investigationId: string,
     indicators: ThreatIndicator[],
     evidence: EvidenceItem[]
   ): RiskAssessment {
-    // 1. INSUFFICIENT EVIDENCE check: If no actionable evidence or indicators
-    if (!evidence || evidence.length === 0) {
-      return {
-        investigation_id: investigationId,
-        calculation_version: SCORING_VERSION,
-        risk_score: 0,
-        risk_level: 'INSUFFICIENT EVIDENCE',
-        confidence: 0,
-        factors: [],
-        raw_scores: {},
-      };
+
+    const safeIndicators = indicators || [];
+    const safeEvidence = evidence || [];
+
+    // 1. Check available evidence.
+    if (safeEvidence.length === 0) {
+      return this.createInsufficientAssessment(investigationId, 0);
     }
 
-    // Check if evidence items have no real content or length
-    const totalEvidenceCharacters = evidence.reduce((acc, curr) => {
-      return acc + (curr.raw_content ? curr.raw_content.trim().length : 0);
-    }, 0);
+    const totalEvidenceCharacters = safeEvidence.reduce(
+      (total, item) =>
+        total + (item.raw_content?.trim().length || 0),
+      0
+    );
 
-    const hasFileAttachment = evidence.some((e) => !!e.file_path);
+    const hasFileAttachment = safeEvidence.some(
+      (item) => Boolean(item.file_path)
+    );
 
-    if (totalEvidenceCharacters < 5 && !hasFileAttachment && indicators.length === 0) {
-      return {
-        investigation_id: investigationId,
-        calculation_version: SCORING_VERSION,
-        risk_score: 0,
-        risk_level: 'INSUFFICIENT EVIDENCE',
-        confidence: 10,
-        factors: [
-          {
-            name: 'Insufficient Investigation Input',
-            category: 'IDENTITY_DECEPTION',
-            severity: 'LOW',
-            scoreContribution: 0,
-            reason: 'Submitted evidence contains insufficient data to extract risk signals or indicators.',
-          },
-        ],
-        raw_scores: {},
-      };
+    if (
+      totalEvidenceCharacters < 5 &&
+      !hasFileAttachment &&
+      safeIndicators.length === 0
+    ) {
+      return this.createInsufficientAssessment(investigationId, 10);
     }
 
-    // 2. Deduplicate indicators to avoid double-counting signals
-    const uniqueIndicators = this.deduplicateIndicators(indicators);
+    // 2. Remove duplicate indicators.
+    const uniqueIndicators = this.deduplicateIndicators(
+      safeIndicators
+    );
 
-    // 3. Category grouping and weighted summation
     const categoryAccumulator: Record<string, number> = {};
     const categoryFactors: RiskFactor[] = [];
-    let totalConfidenceNumerator = 0;
-    let totalConfidenceDenominator = 0;
 
-    for (const ind of uniqueIndicators) {
-      const baseWeight = SEVERITY_WEIGHTS[ind.severity] || 10;
-      const confidenceMultiplier = Math.max(0.1, Math.min(1.0, ind.confidence / 100));
+    let confidenceNumerator = 0;
+    let confidenceDenominator = 0;
 
-      // Source reliability: threat intel feeds get 1.0, automated text rules get 0.9, OCR inferences get 0.85
+    // 3. Calculate indicator contributions.
+    for (const indicator of uniqueIndicators) {
+
+      const baseWeight =
+        SEVERITY_WEIGHTS[indicator.severity] ??
+        SEVERITY_WEIGHTS.LOW;
+
+      const normalizedConfidence = this.normalizeConfidence(
+        indicator.confidence
+      );
+
+      const confidenceMultiplier = normalizedConfidence / 100;
+
       let reliability = 0.9;
-      if (ind.source.includes('Intelligence') || ind.verification_status === 'INTELLIGENCE_CONFIRMED') {
+
+      const source = (indicator.source || '').toLowerCase();
+
+      if (
+        source.includes('intelligence') ||
+        indicator.verification_status === 'INTELLIGENCE_CONFIRMED'
+      ) {
         reliability = 1.0;
-      } else if (ind.source.includes('Screenshot') || ind.source.includes('OCR')) {
+      } else if (
+        source.includes('screenshot') ||
+        source.includes('ocr')
+      ) {
         reliability = 0.85;
       }
 
-      const weightedContribution = baseWeight * confidenceMultiplier * reliability;
+      const weightedContribution =
+        baseWeight *
+        confidenceMultiplier *
+        reliability;
 
-      const cat = ind.category;
-      categoryAccumulator[cat] = (categoryAccumulator[cat] || 0) + weightedContribution;
+      const category = indicator.category;
+
+      categoryAccumulator[category] =
+        (categoryAccumulator[category] || 0) +
+        weightedContribution;
 
       categoryFactors.push({
-        name: ind.indicator_type,
-        category: ind.category,
-        severity: ind.severity,
+        name: indicator.indicator_type,
+        category: indicator.category,
+        severity: indicator.severity,
         scoreContribution: Math.round(weightedContribution),
-        reason: ind.explanation,
+        reason: indicator.explanation,
       });
 
-      totalConfidenceNumerator += ind.confidence;
-      totalConfidenceDenominator += 1;
+      confidenceNumerator += normalizedConfidence * reliability;
+      confidenceDenominator += reliability;
     }
 
-    // 4. Apply category caps
+    // 4. Apply category limits.
     let aggregateScore = 0;
+
     const rawScoresBreakdown: Record<string, number> = {};
 
-    for (const [cat, rawSum] of Object.entries(categoryAccumulator)) {
-      const maxCap = CATEGORY_MAX_SCORES[cat as IndicatorCategory] || 60;
-      const cappedSum = Math.min(rawSum, maxCap);
-      rawScoresBreakdown[cat] = Math.round(cappedSum);
-      aggregateScore += cappedSum;
+    for (const [category, rawScore] of Object.entries(
+      categoryAccumulator
+    )) {
+
+      const maximumScore =
+        CATEGORY_MAX_SCORES[category as IndicatorCategory] ?? 60;
+
+      const cappedScore = Math.min(rawScore, maximumScore);
+
+      rawScoresBreakdown[category] = Math.round(cappedScore);
+
+      aggregateScore += cappedScore;
     }
 
-    // 5. Normalization with diminishing returns
-    // Score scaling: aggregate score is bounded between 0 and 100
-    // If critical signals exist (e.g. Coercion / Remote access / Confirmed Malicious URL), floor score at 80
-    const hasCriticalSeverity = uniqueIndicators.some((i) => i.severity === 'CRITICAL');
-    const hasHighSeverity = uniqueIndicators.some((i) => i.severity === 'HIGH');
+    // 5. Calculate final score.
+    const finalScore = Math.min(
+      100,
+      Math.max(0, Math.round(aggregateScore))
+    );
 
-    let finalScore = Math.min(100, Math.round(aggregateScore));
+    // 6. Determine risk level.
+    let riskLevel: RiskLevel;
 
-    if (hasCriticalSeverity) {
-      finalScore = Math.max(82, finalScore);
-    } else if (hasHighSeverity) {
-      finalScore = Math.max(62, finalScore);
-    } else if (uniqueIndicators.length === 0) {
-      finalScore = 5; // Clean evidence, low baseline
-    }
-
-    // 6. Map to RiskLevel
-    let riskLevel: RiskLevel = 'LOW';
     if (finalScore >= 80) {
       riskLevel = 'CRITICAL';
     } else if (finalScore >= 60) {
@@ -156,45 +196,119 @@ export class DeterministicRiskCalculator {
       riskLevel = 'LOW';
     }
 
-    // Calculate overall confidence (default 85 if no indicators but clean text)
-    const averageConfidence =
-      totalConfidenceDenominator > 0
-        ? Math.round(totalConfidenceNumerator / totalConfidenceDenominator)
-        : Math.min(95, Math.max(60, evidence.length * 30));
+    // 7. Calculate confidence.
+    let overallConfidence: number;
 
+    if (confidenceDenominator > 0) {
+      overallConfidence = Math.round(
+        confidenceNumerator / confidenceDenominator
+      );
+    } else {
+      overallConfidence = Math.min(
+        60,
+        30 + safeEvidence.length * 10
+      );
+    }
+
+    overallConfidence = Math.max(
+      0,
+      Math.min(100, overallConfidence)
+    );
+
+    // 8. Return explainable assessment.
     return {
       investigation_id: investigationId,
       calculation_version: SCORING_VERSION,
       risk_score: finalScore,
       risk_level: riskLevel,
-      confidence: averageConfidence,
-      factors: categoryFactors.sort((a, b) => b.scoreContribution - a.scoreContribution),
+      confidence: overallConfidence,
+
+      factors: categoryFactors.sort(
+        (a, b) => b.scoreContribution - a.scoreContribution
+      ),
+
       raw_scores: rawScoresBreakdown,
     };
   }
 
-  /**
-   * Removes duplicate or overlapping indicators across sources
-   */
-  private deduplicateIndicators(indicators: ThreatIndicator[]): ThreatIndicator[] {
-    const seen = new Set<string>();
-    const deduplicated: ThreatIndicator[] = [];
+  private createInsufficientAssessment(
+    investigationId: string,
+    confidence: number
+  ): RiskAssessment {
+    return {
+      investigation_id: investigationId,
+      calculation_version: SCORING_VERSION,
+      risk_score: 0,
+      risk_level: 'INSUFFICIENT EVIDENCE',
+      confidence,
 
-    for (const ind of indicators) {
-      const key = `${ind.category}_${ind.indicator_type.toLowerCase()}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        deduplicated.push(ind);
-      } else {
-        // If seen, upgrade confidence to max of the two
-        const existing = deduplicated.find((d) => `${d.category}_${d.indicator_type.toLowerCase()}` === key);
-        if (existing && ind.confidence > existing.confidence) {
-          existing.confidence = ind.confidence;
-        }
+      factors: [
+        {
+          name: 'Insufficient Investigation Input',
+          category: 'IDENTITY_DECEPTION',
+          severity: 'LOW',
+          scoreContribution: 0,
+          reason:
+            'There is not enough usable evidence to calculate a meaningful risk score.',
+        },
+      ],
+
+      raw_scores: {},
+    };
+  }
+
+  private deduplicateIndicators(
+    indicators: ThreatIndicator[]
+  ): ThreatIndicator[] {
+
+    const indicatorMap = new Map<string, ThreatIndicator>();
+
+    for (const indicator of indicators) {
+
+      const key = [
+        indicator.category,
+        indicator.indicator_type.trim().toLowerCase(),
+      ].join('_');
+
+      const existing = indicatorMap.get(key);
+
+      if (!existing) {
+        indicatorMap.set(key, { ...indicator });
+        continue;
       }
+
+      const strongerSeverity =
+        (SEVERITY_RANK[indicator.severity] || 0) >
+        (SEVERITY_RANK[existing.severity] || 0);
+
+      const strongerVerification =
+        (VERIFICATION_RANK[indicator.verification_status] || 0) >
+        (VERIFICATION_RANK[existing.verification_status] || 0);
+
+      indicatorMap.set(key, {
+        ...existing,
+
+        severity: strongerSeverity
+          ? indicator.severity
+          : existing.severity,
+
+        confidence: Math.max(
+          this.normalizeConfidence(existing.confidence),
+          this.normalizeConfidence(indicator.confidence)
+        ),
+
+        verification_status: strongerVerification
+          ? indicator.verification_status
+          : existing.verification_status,
+
+        explanation:
+          strongerSeverity || strongerVerification
+            ? indicator.explanation
+            : existing.explanation,
+      });
     }
 
-    return deduplicated;
+    return Array.from(indicatorMap.values());
   }
 }
 

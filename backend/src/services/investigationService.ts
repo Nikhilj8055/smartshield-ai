@@ -1,23 +1,70 @@
+
 import { db } from '../repositories';
 import { orchestrator } from '../agents/orchestrator';
-import { Investigation, EvidenceItem, EvidenceType } from '../types';
+import {
+  Investigation,
+  EvidenceType,
+} from '../types';
 import { computeSha256 } from '../utils/hash';
 import fs from 'fs';
 
+interface EvidenceInput {
+  type: EvidenceType;
+  content?: string;
+  filePath?: string;
+  mimeType?: string;
+}
+
 export class InvestigationService {
+  /**
+   * Validates evidence before storing it.
+   */
+  private validateEvidence(data: EvidenceInput): void {
+    const hasContent = Boolean(data.content?.trim());
+    const hasFilePath = Boolean(data.filePath);
+
+    if (!hasContent && !hasFilePath) {
+      throw new Error(
+        'Please provide evidence content or upload an evidence file.'
+      );
+    }
+
+    if (hasFilePath) {
+      if (data.type !== 'SCREENSHOT') {
+        throw new Error(
+          'Uploaded image files must use SCREENSHOT evidence type.'
+        );
+      }
+
+      if (!fs.existsSync(data.filePath!)) {
+        throw new Error('Uploaded evidence file could not be found.');
+      }
+
+      if (!fs.statSync(data.filePath!).isFile()) {
+        throw new Error('Invalid evidence file.');
+      }
+    }
+  }
+
+  /**
+   * Creates a new investigation.
+   */
   public async createInvestigation(
     userId: string,
     title: string,
-    initialEvidence?: {
-      type: EvidenceType;
-      content?: string;
-      filePath?: string;
-      mimeType?: string;
-    }
+    initialEvidence?: EvidenceInput
   ): Promise<Investigation> {
-    const inv = await db.createInvestigation({
+    if (!userId) {
+      throw new Error('A valid user ID is required.');
+    }
+
+    if (initialEvidence) {
+      this.validateEvidence(initialEvidence);
+    }
+
+    const investigation = await db.createInvestigation({
       user_id: userId,
-      title: title || 'New Scam Investigation',
+      title: title?.trim() || 'New Scam Investigation',
       status: 'IN_PROGRESS',
       overall_risk_level: 'INSUFFICIENT EVIDENCE',
       overall_risk_score: 0,
@@ -28,32 +75,66 @@ export class InvestigationService {
     });
 
     if (initialEvidence) {
-      await this.addEvidenceToInvestigation(inv.id, userId, initialEvidence);
+      await this.addEvidenceToInvestigation(
+        investigation.id,
+        userId,
+        initialEvidence
+      );
     }
 
-    return (await db.getInvestigationById(inv.id))!;
+    const createdInvestigation =
+      await db.getInvestigationById(investigation.id);
+
+    if (!createdInvestigation) {
+      throw new Error('Unable to retrieve the created investigation.');
+    }
+
+    return createdInvestigation;
   }
 
+  /**
+   * Adds evidence and reruns the complete investigation.
+   */
   public async addEvidenceToInvestigation(
     investigationId: string,
     userId: string,
-    evidenceData: {
-      type: EvidenceType;
-      content?: string;
-      filePath?: string;
-      mimeType?: string;
-    }
+    evidenceData: EvidenceInput
   ): Promise<Investigation> {
-    let fileHash: string | undefined = undefined;
-    if (evidenceData.filePath && fs.existsSync(evidenceData.filePath)) {
-      fileHash = computeSha256(fs.readFileSync(evidenceData.filePath));
+    if (!userId) {
+      throw new Error('A valid user ID is required.');
     }
 
+    this.validateEvidence(evidenceData);
+
+    // 1. Retrieve investigation and verify ownership.
+    const currentInvestigation =
+      await db.getInvestigationById(investigationId);
+
+    if (!currentInvestigation) {
+      throw new Error('Investigation not found.');
+    }
+
+    if (currentInvestigation.user_id !== userId) {
+      throw new Error(
+        'You are not authorized to modify this investigation.'
+      );
+    }
+
+    // 2. Calculate file hash when an uploaded file exists.
+    let fileHash: string | undefined;
+
+    if (evidenceData.filePath) {
+      const fileBuffer = fs.readFileSync(evidenceData.filePath);
+      fileHash = computeSha256(fileBuffer);
+    }
+
+    // 3. Save new evidence.
     await db.addEvidence({
       investigation_id: investigationId,
       user_id: userId,
       evidence_type: evidenceData.type,
-      raw_content: evidenceData.content,
+      raw_content: evidenceData.content?.trim() || undefined,
+
       extracted_entities: {
         urls: [],
         phones: [],
@@ -64,48 +145,113 @@ export class InvestigationService {
         dates: [],
         remoteAccessApps: [],
       },
+
       file_path: evidenceData.filePath,
       file_hash: fileHash,
       mime_type: evidenceData.mimeType,
-      reliability_score: evidenceData.type === 'SCREENSHOT' ? 0.9 : 1.0,
+
+      reliability_score:
+        evidenceData.type === 'SCREENSHOT' ? 0.9 : 1.0,
     });
 
-    // Re-run orchestration across all accumulated evidence in this investigation
-    const currentInv = await db.getInvestigationById(investigationId);
-    const allEvidence = await db.getEvidenceByInvestigation(investigationId);
+    // 4. Retrieve ALL accumulated evidence.
+    const allEvidence =
+      await db.getEvidenceByInvestigation(investigationId);
 
-    if (currentInv) {
-      const result = await orchestrator.orchestrate(currentInv, allEvidence);
+    // 5. Run the central multi-agent investigation.
+    const result = await orchestrator.orchestrate(
+      currentInvestigation,
+      allEvidence
+    );
 
-      await db.updateInvestigation(investigationId, {
+    // 6. Update the main investigation record.
+    const updatedInvestigation = await db.updateInvestigation(
+      investigationId,
+      {
         status: result.investigation.status,
-        overall_risk_level: result.investigation.overall_risk_level,
-        overall_risk_score: result.investigation.overall_risk_score,
-        confidence_score: result.investigation.confidence_score,
-        explanation_markdown: result.investigation.explanation_markdown,
-        recommended_actions: result.investigation.recommended_actions,
-        missing_information: result.investigation.missing_information,
-      });
+        overall_risk_level:
+          result.investigation.overall_risk_level,
+        overall_risk_score:
+          result.investigation.overall_risk_score,
+        confidence_score:
+          result.investigation.confidence_score,
+        explanation_markdown:
+          result.investigation.explanation_markdown,
+        recommended_actions:
+          result.investigation.recommended_actions,
+        missing_information:
+          result.investigation.missing_information,
+      }
+    );
 
-      await db.saveIndicators(result.indicators);
-      await db.saveRelationships(result.relationships);
-      await db.saveRiskAssessment(result.riskAssessment);
+    if (!updatedInvestigation) {
+      throw new Error(
+        'Unable to update the investigation results.'
+      );
     }
 
-    return (await db.getInvestigationById(investigationId))!;
+    // 7. Replace old findings with the latest analysis results.
+    await db.replaceIndicatorsForInvestigation(
+      investigationId,
+      result.indicators
+    );
+
+    await db.replaceRelationshipsForInvestigation(
+      investigationId,
+      result.relationships
+    );
+
+    // 8. Save the latest risk assessment.
+    await db.saveRiskAssessment(result.riskAssessment);
+
+    // 9. Return the complete updated investigation.
+    const finalInvestigation =
+      await db.getInvestigationById(investigationId);
+
+    if (!finalInvestigation) {
+      throw new Error(
+        'Unable to retrieve the updated investigation.'
+      );
+    }
+
+    return finalInvestigation;
   }
 
-  public async getInvestigation(id: string): Promise<Investigation | null> {
+  /**
+   * Retrieves an investigation.
+   */
+  public async getInvestigation(
+    id: string
+  ): Promise<Investigation | null> {
     return db.getInvestigationById(id);
   }
 
-  public async listUserInvestigations(userId: string): Promise<Investigation[]> {
+  /**
+   * Lists investigations belonging to a user.
+   */
+  public async listUserInvestigations(
+    userId: string
+  ): Promise<Investigation[]> {
     return db.listInvestigationsByUserId(userId);
   }
 
-  public async deleteInvestigation(id: string, userId: string): Promise<boolean> {
-    const inv = await db.getInvestigationById(id);
-    if (!inv || inv.user_id !== userId) return false;
+  /**
+   * Deletes an investigation after verifying ownership.
+   */
+  public async deleteInvestigation(
+    id: string,
+    userId: string
+  ): Promise<boolean> {
+    const investigation = await db.getInvestigationById(id);
+
+    if (!investigation) {
+      return false;
+    }
+
+    if (investigation.user_id !== userId) {
+      return false;
+    }
+
     return db.deleteInvestigation(id);
   }
 }

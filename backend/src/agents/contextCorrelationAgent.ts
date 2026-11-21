@@ -1,3 +1,4 @@
+
 import { AgentResult } from './agentTypes';
 import {
   ThreatIndicator,
@@ -17,25 +18,65 @@ export class ContextCorrelationAgent {
     indicators: ThreatIndicator[]
   ): Promise<AgentResult> {
     const startTime = Date.now();
+
     const relationships: InvestigationRelationship[] = [];
     const correlationIndicators: ThreatIndicator[] = [];
     const uncertainties: string[] = [];
 
-    // 1. Correlate Organizations with URLs & Phones
-    const uniqueOrgs = Array.from(new Set(accumulatedEntities.organizations));
-    const uniqueUrls = Array.from(new Set(accumulatedEntities.urls));
-    const uniquePhones = Array.from(new Set(accumulatedEntities.phones));
-    const uniqueUpis = Array.from(new Set(accumulatedEntities.upiIds));
-    const uniqueRemoteApps = Array.from(new Set(accumulatedEntities.remoteAccessApps));
+    // Normalize entities to avoid duplicate values.
+    const normalize = (values: string[] = []) =>
+      Array.from(
+        new Set(
+          values
+            .map((value) => value.trim())
+            .filter(Boolean)
+        )
+      );
 
-    // Connect Message -> Entities
+    const uniqueOrgs = normalize(accumulatedEntities.organizations);
+    const uniqueUrls = normalize(accumulatedEntities.urls);
+    const uniquePhones = normalize(accumulatedEntities.phones);
+    const uniqueUpis = normalize(accumulatedEntities.upiIds);
+    const uniqueRemoteApps = normalize(
+      accumulatedEntities.remoteAccessApps
+    );
+
+    // Track relationships to prevent duplicates.
+    const relationshipKeys = new Set<string>();
+
+    const addRelationship = (
+      relationship: InvestigationRelationship
+    ) => {
+      const key = [
+        relationship.source_entity_id,
+        relationship.target_entity_id,
+        relationship.relationship_type,
+        relationship.evidence_id,
+      ].join('|');
+
+      if (!relationshipKeys.has(key)) {
+        relationshipKeys.add(key);
+        relationships.push(relationship);
+      }
+    };
+
+    // Connect each evidence item to its extracted entities.
     for (const ev of evidenceList) {
       const evId = ev.id;
       const evLabel = `Evidence (${ev.evidence_type})`;
 
-      // Link URLs found in this evidence
-      for (const url of ev.extracted_entities.urls || []) {
-        relationships.push({
+      const entities = ev.extracted_entities;
+
+      if (!entities) {
+        uncertainties.push(
+          `Evidence ${evId} has no extracted entity information.`
+        );
+        continue;
+      }
+
+      // URL relationships.
+      for (const url of normalize(entities.urls)) {
+        addRelationship({
           id: uuidv4(),
           investigation_id: investigationId,
           source_entity_id: evId,
@@ -50,9 +91,9 @@ export class ContextCorrelationAgent {
         });
       }
 
-      // Link Phones
-      for (const phone of ev.extracted_entities.phones || []) {
-        relationships.push({
+      // Phone relationships.
+      for (const phone of normalize(entities.phones)) {
+        addRelationship({
           id: uuidv4(),
           investigation_id: investigationId,
           source_entity_id: evId,
@@ -67,9 +108,9 @@ export class ContextCorrelationAgent {
         });
       }
 
-      // Link UPI IDs
-      for (const upi of ev.extracted_entities.upiIds || []) {
-        relationships.push({
+      // UPI relationships.
+      for (const upi of normalize(entities.upiIds)) {
+        addRelationship({
           id: uuidv4(),
           investigation_id: investigationId,
           source_entity_id: evId,
@@ -84,9 +125,9 @@ export class ContextCorrelationAgent {
         });
       }
 
-      // Link Organizations
-      for (const org of ev.extracted_entities.organizations || []) {
-        relationships.push({
+      // Organization relationships.
+      for (const org of normalize(entities.organizations)) {
+        addRelationship({
           id: uuidv4(),
           investigation_id: investigationId,
           source_entity_id: evId,
@@ -102,52 +143,115 @@ export class ContextCorrelationAgent {
       }
     }
 
-    // Cross-channel Discrepancy Analysis:
-    // If sender claims to represent a major bank/institution (e.g. SBI) but requests payment to a personal UPI or links to an unverified domain
-    if (uniqueOrgs.length > 0 && uniqueUpis.length > 0) {
-      const personalUpiDetected = uniqueUpis.some((u) => !u.includes('.merchant') && !u.includes('official'));
-      if (personalUpiDetected) {
-        correlationIndicators.push({
-          id: uuidv4(),
-          investigation_id: investigationId,
-          indicator_type: 'Cross-Channel Entity Inconsistency',
-          category: 'IDENTITY_DECEPTION',
-          severity: 'HIGH',
-          confidence: 90,
-          explanation: `Communication claims representation of "${uniqueOrgs.join(', ')}", but financial settlement routes through personal VPA (${uniqueUpis.join(', ')}).`,
-          source: 'Context Correlation Agent (Discrepancy Engine)',
-          verification_status: 'AUTOMATED_MATCH',
-        });
-      }
-    }
+    // Identify whether any evidence claims organizational representation
+    // while another piece of evidence requests payment.
+    const hasOrganizationClaim = uniqueOrgs.length > 0;
+    const hasPaymentDestination = uniqueUpis.length > 0;
 
-    // Remote app linked with banking claim
-    if (uniqueOrgs.length > 0 && uniqueRemoteApps.length > 0) {
+    const hasRelatedFinancialIndicator = indicators.some(
+      (indicator) =>
+        indicator.category === 'FINANCIAL' ||
+        indicator.category === 'IDENTITY_DECEPTION'
+    );
+
+    if (
+      hasOrganizationClaim &&
+      hasPaymentDestination &&
+      hasRelatedFinancialIndicator
+    ) {
       correlationIndicators.push({
         id: uuidv4(),
         investigation_id: investigationId,
-        indicator_type: 'Impersonation Paired With Remote-Control Request',
-        category: 'REMOTE_ACCESS',
-        severity: 'CRITICAL',
-        confidence: 95,
-        explanation: `Claim of representing ${uniqueOrgs.join(', ')} paired with instructions to install remote access app (${uniqueRemoteApps.join(', ')}).`,
-        source: 'Context Correlation Agent (Cross-Vector Matcher)',
+        indicator_type: 'Organization Claim and Payment Destination Correlation',
+        category: 'IDENTITY_DECEPTION',
+        severity: 'HIGH',
+        confidence: 75,
+        explanation:
+          `The collected evidence contains a claim of representing ${uniqueOrgs.join(', ')} ` +
+          `and a payment destination (${uniqueUpis.join(', ')}). ` +
+          'This combination deserves verification. The UPI account ownership and official relationship have not been independently established.',
+        source: 'Context Correlation Agent',
         verification_status: 'AUTOMATED_MATCH',
       });
     }
 
+    // Remote access and organization claim correlation.
+    if (hasOrganizationClaim && uniqueRemoteApps.length > 0) {
+      correlationIndicators.push({
+        id: uuidv4(),
+        investigation_id: investigationId,
+        indicator_type: 'Organization Claim With Remote Access Request',
+        category: 'REMOTE_ACCESS',
+        severity: 'CRITICAL',
+        confidence: 85,
+        explanation:
+          `The evidence contains an organization claim involving ${uniqueOrgs.join(', ')} ` +
+          `and mentions remote access software (${uniqueRemoteApps.join(', ')}). ` +
+          'This combination is a serious warning sign when an unsolicited sender asks the user to install or operate remote access software.',
+        source: 'Context Correlation Agent',
+        verification_status: 'AUTOMATED_MATCH',
+      });
+    }
+
+    // Check whether URL intelligence has identified suspicious links.
+    const suspiciousUrlIndicators = indicators.filter(
+      (indicator) =>
+        indicator.category === 'MALICIOUS_LINK'
+    );
+
+    if (uniqueOrgs.length > 0 && suspiciousUrlIndicators.length > 0) {
+      correlationIndicators.push({
+        id: uuidv4(),
+        investigation_id: investigationId,
+        indicator_type: 'Organization Claim With Suspicious URL',
+        category: 'IDENTITY_DECEPTION',
+        severity: 'HIGH',
+        confidence: 80,
+        explanation:
+          `The evidence contains a claim of representing ${uniqueOrgs.join(', ')} ` +
+          `and ${suspiciousUrlIndicators.length} suspicious URL-related finding(s). ` +
+          'The relationship between the claimed organization and the linked domain should be independently verified.',
+        source: 'Context Correlation Agent',
+        verification_status: 'AUTOMATED_MATCH',
+      });
+    }
+
+    // Record limitations of the available evidence.
     if (evidenceList.length < 2) {
-      uncertainties.push('Single evidence item available. Cross-channel correlation improves when multiple items (e.g. SMS + URL + UPI) are linked.');
+      uncertainties.push(
+        'Only one evidence item is available. Cross-channel correlation is limited without additional messages, URLs, payment details, or sender information.'
+      );
+    }
+
+    if (uniqueUrls.length === 0) {
+      uncertainties.push(
+        'No URLs were extracted. Domain reputation and organization-domain relationships could not be evaluated.'
+      );
+    }
+
+    if (uniqueUpis.length === 0) {
+      uncertainties.push(
+        'No UPI IDs were extracted. Payment destination correlation could not be performed.'
+      );
+    }
+
+    if (uniqueOrgs.length === 0) {
+      uncertainties.push(
+        'No organization claims were extracted. Organization impersonation correlation could not be performed.'
+      );
     }
 
     return {
       agentName: this.name,
       executionTimeMs: Date.now() - startTime,
-      confidence: 88,
+      confidence: evidenceList.length >= 2 ? 80 : 60,
       extractedEntities: accumulatedEntities,
       indicators: correlationIndicators,
       relationships,
-      summary: `Constructed Scam Journey Graph with ${relationships.length} entity edge(s) across ${evidenceList.length} evidence source(s).`,
+      summary:
+        `Built an evidence relationship graph with ${relationships.length} ` +
+        `relationship(s) across ${evidenceList.length} evidence item(s). ` +
+        `Generated ${correlationIndicators.length} cross-entity finding(s).`,
       uncertainties,
     };
   }

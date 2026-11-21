@@ -1,4 +1,10 @@
-export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'INSUFFICIENT EVIDENCE';
+
+export type RiskLevel =
+  | 'LOW'
+  | 'MEDIUM'
+  | 'HIGH'
+  | 'CRITICAL'
+  | 'INSUFFICIENT EVIDENCE';
 
 export type IndicatorCategory =
   | 'COERCION'
@@ -48,11 +54,15 @@ export interface ThreatIndicator {
   indicator_type: string;
   category: IndicatorCategory;
   severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  confidence: number; // 0-100
+  confidence: number;
   explanation: string;
   raw_matched_pattern?: string;
   source: string;
-  verification_status: 'AUTOMATED_MATCH' | 'INTELLIGENCE_CONFIRMED' | 'USER_REPORTED' | 'DISMISSED';
+  verification_status:
+    | 'AUTOMATED_MATCH'
+    | 'INTELLIGENCE_CONFIRMED'
+    | 'USER_REPORTED'
+    | 'DISMISSED';
   created_at?: string;
 }
 
@@ -83,9 +93,9 @@ export interface RiskAssessment {
   id?: string;
   investigation_id: string;
   calculation_version: string;
-  risk_score: number; // 0-100
+  risk_score: number;
   risk_level: RiskLevel;
-  confidence: number; // 0-100
+  confidence: number;
   factors: RiskFactor[];
   raw_scores: Record<string, number>;
   created_at?: string;
@@ -160,7 +170,13 @@ export interface RecoveryCase {
   amount_lost: number;
   transaction_reference?: string;
   bank_name?: string;
-  status: 'OPEN' | 'EVIDENCE_COLLECTED' | 'BANK_CONTACTED' | 'REPORTED' | 'FOLLOW_UP_REQUIRED' | 'CLOSED';
+  status:
+    | 'OPEN'
+    | 'EVIDENCE_COLLECTED'
+    | 'BANK_CONTACTED'
+    | 'REPORTED'
+    | 'FOLLOW_UP_REQUIRED'
+    | 'CLOSED';
   official_complaint_id?: string;
   notes?: string;
   timeline: Array<{
@@ -180,7 +196,11 @@ export interface ScamPatternCluster {
   pattern_signature: string;
   risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   report_count: number;
-  status: 'NEW' | 'UNDER_REVIEW' | 'VERIFIED_PATTERN' | 'DISMISSED';
+  status:
+    | 'NEW'
+    | 'UNDER_REVIEW'
+    | 'VERIFIED_PATTERN'
+    | 'DISMISSED';
   sample_indicators: string[];
   created_at: string;
   updated_at: string;
@@ -194,6 +214,10 @@ export interface ScamReport {
   normalized_text: string;
   extracted_indicators: string[];
   consent_given: boolean;
-  verification_status: 'NEW' | 'UNDER_REVIEW' | 'VERIFIED_PATTERN' | 'DISMISSED';
+  verification_status:
+    | 'NEW'
+    | 'UNDER_REVIEW'
+    | 'VERIFIED_PATTERN'
+    | 'DISMISSED';
   created_at: string;
 }

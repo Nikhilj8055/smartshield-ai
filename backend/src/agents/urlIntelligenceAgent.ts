@@ -1,3 +1,4 @@
+
 import { AgentResult } from './agentTypes';
 import { ThreatIndicator, ExtractedEntities } from '../types';
 import { parseAndNormalizeUrl } from '../utils/urlHelper';
@@ -14,12 +15,10 @@ export class UrlIntelligenceAgent {
     rawUrl: string
   ): Promise<AgentResult> {
     const startTime = Date.now();
-    const urlMeta = parseAndNormalizeUrl(rawUrl);
+    const cleanUrl = typeof rawUrl === 'string' ? rawUrl.trim() : '';
 
-    const indicators: ThreatIndicator[] = [];
-    const uncertainties: string[] = [];
     const extractedEntities: ExtractedEntities = {
-      urls: [rawUrl],
+      urls: cleanUrl ? [cleanUrl] : [],
       phones: [],
       emails: [],
       upiIds: [],
@@ -29,148 +28,329 @@ export class UrlIntelligenceAgent {
       remoteAccessApps: [],
     };
 
+    const indicators: ThreatIndicator[] = [];
+    const uncertainties: string[] = [];
+
+    // 1. INPUT VALIDATION
+
+    if (!cleanUrl) {
+      return {
+        agentName: this.name,
+        executionTimeMs: Date.now() - startTime,
+        confidence: 0,
+        extractedEntities,
+        indicators: [],
+        summary: 'No URL was provided for investigation.',
+        uncertainties: ['Insufficient evidence: URL input is empty.'],
+      };
+    }
+
+    const urlMeta = parseAndNormalizeUrl(cleanUrl);
+
     if (!urlMeta) {
       return {
         agentName: this.name,
         executionTimeMs: Date.now() - startTime,
-        confidence: 40,
+        confidence: 0,
         extractedEntities,
         indicators: [],
-        summary: 'Submitted string could not be parsed into a valid web URL format.',
-        uncertainties: ['Malformed or incomplete URL string.'],
+        summary: 'The supplied input could not be parsed as a valid web URL.',
+        uncertainties: [
+          'URL is malformed or incomplete.',
+          'No threat-intelligence lookup was performed.',
+        ],
+      };
+    }
+
+    let parsedUrl: URL;
+
+    try {
+      parsedUrl = new URL(urlMeta.normalizedUrl);
+
+      if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        throw new Error('Unsupported URL protocol.');
+      }
+    } catch {
+      return {
+        agentName: this.name,
+        executionTimeMs: Date.now() - startTime,
+        confidence: 0,
+        extractedEntities,
+        indicators: [],
+        summary: 'Unsupported or invalid URL protocol.',
+        uncertainties: ['Only HTTP and HTTPS URLs are supported.'],
       };
     }
 
     if (urlMeta.targetLookalikeOrg) {
-      extractedEntities.organizations.push(urlMeta.targetLookalikeOrg);
+      extractedEntities.organizations.push(
+        urlMeta.targetLookalikeOrg
+      );
     }
 
-    // 1. Structural Flags Checks
-    if (urlMeta.isLookalike) {
+    // 2. INDICATOR GENERATION
+
+    const detectedRules = new Set<string>();
+
+    const addIndicator = (
+      key: string,
+      indicatorType: string,
+      category: ThreatIndicator['category'],
+      severity: ThreatIndicator['severity'],
+      confidence: number,
+      explanation: string,
+      source: string,
+      verificationStatus: ThreatIndicator['verification_status'],
+      matchedPattern?: string
+    ) => {
+      if (detectedRules.has(key)) return;
+
+      detectedRules.add(key);
+
       indicators.push({
         id: uuidv4(),
         investigation_id: investigationId,
         evidence_id: evidenceId,
-        indicator_type: 'Typosquatting & Lookalike Impersonation',
-        category: 'IMPERSONATION',
-        severity: 'HIGH',
-        confidence: 90,
-        explanation: `Domain ${urlMeta.hostname} embeds target brand name (${urlMeta.targetLookalikeOrg}) on an unverified third-party host.`,
-        source: 'URL Intelligence Agent (Domain Analyzer)',
-        verification_status: 'AUTOMATED_MATCH',
+        indicator_type: indicatorType,
+        category,
+        severity,
+        confidence,
+        explanation,
+        raw_matched_pattern: matchedPattern,
+        source,
+        verification_status: verificationStatus,
       });
+    };
+
+    // 3. DOMAIN LOOKALIKE DETECTION
+
+    if (urlMeta.isLookalike) {
+      addIndicator(
+        'lookalike-domain',
+        'Potential Brand Impersonation',
+        'IMPERSONATION',
+        'HIGH',
+        75,
+        `The hostname ${urlMeta.hostname} contains a brand-related keyword associated with ${urlMeta.targetLookalikeOrg}, but does not match the helper's configured official-domain rules. This requires independent verification.`,
+        'URL Intelligence Agent - Domain Structure',
+        'AUTOMATED_MATCH'
+      );
     }
+
+    // 4. PUNYCODE DETECTION
 
     if (urlMeta.isPunycode) {
-      indicators.push({
-        id: uuidv4(),
-        investigation_id: investigationId,
-        evidence_id: evidenceId,
-        indicator_type: 'Punycode Homograph Obfuscation',
-        category: 'IDENTITY_DECEPTION',
-        severity: 'HIGH',
-        confidence: 88,
-        explanation: 'Domain uses international character substitution (xn--) designed to visually disguise legitimate ASCII domain names.',
-        source: 'URL Intelligence Agent (Punycode Parser)',
-        verification_status: 'AUTOMATED_MATCH',
-      });
+      addIndicator(
+        'punycode-domain',
+        'Internationalized Domain Name',
+        'IDENTITY_DECEPTION',
+        'MEDIUM',
+        65,
+        `The hostname ${urlMeta.hostname} uses Punycode encoding. This can be legitimate, but can also be used for visually deceptive domains.`,
+        'URL Intelligence Agent - IDN Parser',
+        'AUTOMATED_MATCH'
+      );
     }
+
+    // 5. DIRECT IP ADDRESS
 
     if (urlMeta.isIpAddress) {
-      indicators.push({
-        id: uuidv4(),
-        investigation_id: investigationId,
-        evidence_id: evidenceId,
-        indicator_type: 'Direct IP-Address Destination',
-        category: 'MALICIOUS_LINK',
-        severity: 'HIGH',
-        confidence: 85,
-        explanation: 'URL navigates directly to a numeric IP address, bypassing standard domain registry trust and reputation verification.',
-        source: 'URL Intelligence Agent (IP Parser)',
-        verification_status: 'AUTOMATED_MATCH',
-      });
+      addIndicator(
+        'ip-address-host',
+        'Direct IP Address Destination',
+        'MALICIOUS_LINK',
+        'MEDIUM',
+        60,
+        'The URL points directly to an IP address instead of a conventional domain name. This is unusual for many consumer-facing services but is not proof of malicious activity.',
+        'URL Intelligence Agent - Hostname Parser',
+        'AUTOMATED_MATCH'
+      );
     }
+
+    // 6. URL SHORTENER
 
     if (urlMeta.isShortener) {
-      indicators.push({
-        id: uuidv4(),
-        investigation_id: investigationId,
-        evidence_id: evidenceId,
-        indicator_type: 'Obfuscated Shortened Link',
-        category: 'MALICIOUS_LINK',
-        severity: 'MEDIUM',
-        confidence: 75,
-        explanation: 'Link obfuscated through a URL shortening service, masking the real landing page destination.',
-        source: 'URL Intelligence Agent (Shortener Registry)',
-        verification_status: 'AUTOMATED_MATCH',
-      });
+      addIndicator(
+        'url-shortener',
+        'URL Shortening Service Detected',
+        'MALICIOUS_LINK',
+        'LOW',
+        50,
+        'The URL uses a recognized shortening service. Its final destination is not established by this check. Resolve it safely before assessing the destination.',
+        'URL Intelligence Agent - Shortener Registry',
+        'AUTOMATED_MATCH'
+      );
+
+      uncertainties.push(
+        'The shortened URL destination has not been resolved or inspected.'
+      );
     }
+
+    // 7. SUSPICIOUS TOP-LEVEL DOMAIN
 
     if (urlMeta.hasSuspiciousTld) {
-      indicators.push({
-        id: uuidv4(),
-        investigation_id: investigationId,
-        evidence_id: evidenceId,
-        indicator_type: 'High-Abuse Top-Level Domain',
-        category: 'MALICIOUS_LINK',
-        severity: 'MEDIUM',
-        confidence: 70,
-        explanation: `Domain utilizes a top-level domain frequently associated with automated disposable phishing kits.`,
-        source: 'URL Intelligence Agent (TLD Registry)',
-        verification_status: 'AUTOMATED_MATCH',
-      });
+      addIndicator(
+        'suspicious-tld',
+        'Potentially High-Abuse Top-Level Domain',
+        'MALICIOUS_LINK',
+        'LOW',
+        45,
+        "The domain uses a TLD listed in the project's heuristic registry. TLD choice alone cannot establish that a website is malicious.",
+        'URL Intelligence Agent - TLD Heuristic',
+        'AUTOMATED_MATCH'
+      );
     }
 
-    // 2. Threat Intelligence Lookups
-    const [sbResult, uhResult] = await Promise.all([
-      safeBrowsing.checkUrl(urlMeta.normalizedUrl, urlMeta.domain),
-      urlhaus.checkDomain(urlMeta.domain),
-    ]);
+    // 8. UNUSUAL SUBDOMAIN STRUCTURE
 
-    if (sbResult.isThreatFound) {
-      indicators.push({
-        id: uuidv4(),
-        investigation_id: investigationId,
-        evidence_id: evidenceId,
-        indicator_type: 'Confirmed Phishing / Malware Host',
-        category: 'MALICIOUS_LINK',
-        severity: 'CRITICAL',
-        confidence: 98,
-        explanation: `Confirmed active malicious link in ${sbResult.providerName}: ${sbResult.threatDetails}`,
-        source: sbResult.providerName,
-        verification_status: 'INTELLIGENCE_CONFIRMED',
-      });
+    if (urlMeta.suspiciousSubdomains.length > 0) {
+      addIndicator(
+        'deep-subdomain',
+        'Unusually Deep Subdomain Structure',
+        'IDENTITY_DECEPTION',
+        'LOW',
+        45,
+        `The hostname contains multiple subdomain levels: ${urlMeta.suspiciousSubdomains.join(', ')}. This structure deserves inspection but is not proof of impersonation.`,
+        'URL Intelligence Agent - Hostname Structure',
+        'AUTOMATED_MATCH'
+      );
     }
 
-    if (uhResult.isThreatFound) {
-      indicators.push({
-        id: uuidv4(),
-        investigation_id: investigationId,
-        evidence_id: evidenceId,
-        indicator_type: 'URLhaus Blacklisted Domain',
-        category: 'MALICIOUS_LINK',
-        severity: 'CRITICAL',
-        confidence: 96,
-        explanation: uhResult.threatDetails || 'Domain flagged in active cybercrime distribution registries.',
-        source: uhResult.providerName,
-        verification_status: 'INTELLIGENCE_CONFIRMED',
-      });
+    // 8.5. CREDENTIAL HARVESTING PATTERN
+
+    if (urlMeta.hasCredentialHarvestingPattern) {
+      addIndicator(
+        'credential-harvesting-pattern',
+        'Suspicious Financial Login or Verification Pattern',
+        'IDENTITY_DECEPTION',
+        'MEDIUM',
+        65,
+        `The URL combines financial-service keywords with account access or verification keywords: ${urlMeta.credentialPatternMatches.join(', ')}. This pattern may indicate a credential-harvesting attempt, but does not independently prove malicious activity.`,
+        'URL Intelligence Agent - Credential Pattern Analysis',
+        'AUTOMATED_MATCH',
+        urlMeta.normalizedUrl
+      );
     }
 
-    uncertainties.push('External DNS age and registrant records require live registrar API for definitive WHOIS confirmation.');
+    // 9. EXTERNAL THREAT INTELLIGENCE
+
+    let sbAvailable = false;
+    let uhAvailable = false;
+
+    try {
+      const [sbResult, uhResult] = await Promise.all([
+        safeBrowsing.checkUrl(
+          urlMeta.normalizedUrl,
+          urlMeta.domain
+        ),
+        urlhaus.checkDomain(urlMeta.domain),
+      ]);
+
+      sbAvailable = sbResult.isAvailable;
+      uhAvailable = uhResult.isAvailable;
+
+      // Google Safe Browsing
+
+      if (sbResult.isThreatFound) {
+        const isOffline =
+          sbResult.providerName.toLowerCase().includes('offline');
+
+        addIndicator(
+          'safe-browsing-threat',
+          'Threat Match in Safe Browsing Lookup',
+          'MALICIOUS_LINK',
+          'CRITICAL',
+          isOffline ? 70 : 95,
+          `${sbResult.providerName}: ${sbResult.threatDetails || 'Threat match detected.'}`,
+          sbResult.providerName,
+          isOffline
+            ? 'AUTOMATED_MATCH'
+            : 'INTELLIGENCE_CONFIRMED'
+        );
+      }
+
+      // URLhaus
+
+      if (uhResult.isThreatFound) {
+        addIndicator(
+          'urlhaus-threat',
+          'Match in Local Threat Intelligence Cache',
+          'MALICIOUS_LINK',
+          'HIGH',
+          70,
+          `${uhResult.threatDetails || 'Domain matched a locally configured threat entry.'} Live URLhaus verification is not currently implemented.`,
+          uhResult.providerName,
+          'AUTOMATED_MATCH'
+        );
+      }
+
+      if (!sbAvailable) {
+        uncertainties.push(
+          'Google Safe Browsing was unavailable. No conclusion can be drawn from this provider.'
+        );
+      }
+
+      if (!uhAvailable) {
+        uncertainties.push(
+          'URLhaus lookup was unavailable. No conclusion can be drawn from this provider.'
+        );
+      }
+
+      if (!sbResult.isThreatFound && sbAvailable) {
+        uncertainties.push(
+          'Google Safe Browsing reported no known threat match. This does not prove the URL is safe.'
+        );
+      }
+
+      if (!uhResult.isThreatFound && uhAvailable) {
+        uncertainties.push(
+          'The URLhaus adapter reported no match. Its current implementation uses a local cache rather than a live URLhaus query.'
+        );
+      }
+    } catch {
+      uncertainties.push(
+        'One or more threat-intelligence lookups failed unexpectedly. External verification is incomplete.'
+      );
+    }
+
+    // 10. GENERAL INVESTIGATION UNCERTAINTIES
+
+    uncertainties.push(
+      'Domain registration age and ownership have not been verified.'
+    );
+
+    uncertainties.push(
+      'The final landing page and redirect chain have not been inspected.'
+    );
+
+    uncertainties.push(
+      'A valid HTTPS certificate does not establish that a website is trustworthy.'
+    );
+
+    if (indicators.length === 0) {
+      uncertainties.push(
+        'No configured structural or threat-feed indicators were detected. The URL must not be classified as safe based on this result alone.'
+      );
+    }
+
+    // 11. FINAL RESULT
+
+    const summary =
+      indicators.length > 0
+        ? `Detected ${indicators.length} URL-related indicator(s) for ${urlMeta.hostname}. Review the evidence and verification status before making a decision.`
+        : `No configured URL threat indicators were detected for ${urlMeta.hostname}. The URL remains unverified.`;
 
     return {
       agentName: this.name,
       executionTimeMs: Date.now() - startTime,
-      confidence: indicators.length > 0 ? 94 : 85,
+      confidence: indicators.length > 0 ? 65 : 35,
       extractedEntities,
       indicators,
-      summary: indicators.length > 0
-        ? `Flagged ${indicators.length} threat indicator(s) for domain ${urlMeta.hostname}.`
-        : `Domain ${urlMeta.hostname} exhibits standard structure with no active blacklist flags.`,
+      summary,
       uncertainties,
     };
   }
 }
 
-export const urlIntelligenceAgent = new UrlIntelligenceAgent();
+export const urlIntelligenceAgent =
+  new UrlIntelligenceAgent();

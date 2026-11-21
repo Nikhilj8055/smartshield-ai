@@ -1,11 +1,31 @@
+
 import { Router } from 'express';
 import { analysisController } from '../controllers/analysisController';
-import { uploadMiddleware } from '../middleware/upload';
+import {
+  uploadMiddleware,
+  validateUploadedImage,
+} from '../middleware/upload';
 
 const router = Router();
 
-router.post('/message', analysisController.analyzeMessage);
-router.post('/url', analysisController.analyzeUrl);
-router.post('/screenshot', uploadMiddleware.single('file'), analysisController.analyzeScreenshot);
+// Message analysis
+router.post(
+  '/message',
+  analysisController.analyzeMessage
+);
+
+// URL analysis
+router.post(
+  '/url',
+  analysisController.analyzeUrl
+);
+
+// Screenshot analysis
+router.post(
+  '/screenshot',
+  uploadMiddleware.single('file'),
+  validateUploadedImage,
+  analysisController.analyzeScreenshot
+);
 
 export default router;
