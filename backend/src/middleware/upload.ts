@@ -1,14 +1,20 @@
 
 import multer from 'multer';
-import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import { config } from '../config';
 
+// Vercel serverless functions use /tmp for temporary file storage.
+// Local development continues using the existing uploads directory.
+const uploadDirectory =
+  config.env === 'production'
+    ? '/tmp'
+    : config.storage.localUploadDir;
+
 // Ensure upload directory exists.
-if (!fs.existsSync(config.storage.localUploadDir)) {
-  fs.mkdirSync(config.storage.localUploadDir, { recursive: true });
+if (!fs.existsSync(uploadDirectory)) {
+  fs.mkdirSync(uploadDirectory, { recursive: true });
 }
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -22,7 +28,7 @@ const ALLOWED_MIME_TYPES: Record<string, string> = {
 // Store files using generated names, never the user's original filename.
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    cb(null, config.storage.localUploadDir);
+    cb(null, uploadDirectory);
   },
 
   filename: (_req, file, cb) => {
@@ -38,7 +44,6 @@ const storage = multer.diskStorage({
 });
 
 // Initial MIME type check.
-// This is only a preliminary check, not proof that the file is an image.
 const fileFilter = (
   _req: Request,
   file: Express.Multer.File,
@@ -68,7 +73,7 @@ export const uploadMiddleware = multer({
 
 /**
  * Checks the actual binary signature of an uploaded image.
- * Must run AFTER uploadMiddleware.single(...) or uploadMiddleware.array(...).
+ * Must run AFTER uploadMiddleware.single(...).
  */
 export async function validateUploadedImage(
   req: Request,

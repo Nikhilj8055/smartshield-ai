@@ -1,3 +1,4 @@
+
 import React from 'react';
 import {
   BrowserRouter,
@@ -7,22 +8,20 @@ import {
   Outlet,
   useLocation,
 } from 'react-router-dom';
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppLayout } from './layouts/AppLayout';
-import { useAuth } from './context/AuthContext';
 
 // Pages
-import { LandingPage } from './pages/LandingPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { InvestigationWorkspacePage } from './pages/InvestigationWorkspacePage';
 import { InvestigationDetailPage } from './pages/InvestigationDetailPage';
+import { GuestResultsPage } from './pages/GuestResultsPage';
 import { BeforeYouPayPage } from './pages/BeforeYouPayPage';
 import { EmergencyPage } from './pages/EmergencyPage';
 import { ScamDiscoveryPage } from './pages/ScamDiscoveryPage';
 import { RecoveryPage } from './pages/RecoveryPage';
-import { LoginPage } from './pages/LoginPage';
-import { RegisterPage } from './pages/RegisterPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,25 +39,74 @@ export const App: React.FC = () => {
         <BrowserRouter>
           <Routes>
             <Route element={<AppLayout />}>
-              <Route path="/" element={<LandingPage />} />
-              <Route path="/dashboard" element={<DashboardPage />} />
+
+              {/* Open the application directly into investigation */}
+              <Route
+                path="/"
+                element={<Navigate to="/investigate" replace />}
+              />
+
+              {/* Public guest investigation workspace */}
+              <Route
+                path="/investigate"
+                element={<InvestigationWorkspacePage />}
+              />
+
+              {/* Public guest investigation results */}
+              <Route
+                path="/guest-results"
+                element={<GuestResultsPage />}
+              />
+
+              {/* Existing database-backed pages */}
               <Route element={<ProtectedRoute />}>
-  <Route
-    path="/investigate"
-    element={<InvestigationWorkspacePage />}
-  />
-  <Route
-    path="/investigation/:id"
-    element={<InvestigationDetailPage />}
-  />
-</Route>
-              <Route path="/before-you-pay" element={<BeforeYouPayPage />} />
-              <Route path="/emergency" element={<EmergencyPage />} />
-              <Route path="/discovery" element={<ScamDiscoveryPage />} />
-              <Route path="/recovery" element={<RecoveryPage />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/register" element={<RegisterPage />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
+                <Route
+                  path="/dashboard"
+                  element={<DashboardPage />}
+                />
+
+                <Route
+                  path="/investigation/:id"
+                  element={<InvestigationDetailPage />}
+                />
+
+                <Route
+                  path="/before-you-pay"
+                  element={<BeforeYouPayPage />}
+                />
+
+                <Route
+                  path="/emergency"
+                  element={<EmergencyPage />}
+                />
+
+                <Route
+                  path="/discovery"
+                  element={<ScamDiscoveryPage />}
+                />
+
+                <Route
+                  path="/recovery"
+                  element={<RecoveryPage />}
+                />
+              </Route>
+
+              {/* Login and registration are not required for the demo */}
+              <Route
+                path="/login"
+                element={<Navigate to="/investigate" replace />}
+              />
+
+              <Route
+                path="/register"
+                element={<Navigate to="/investigate" replace />}
+              />
+
+              <Route
+                path="*"
+                element={<Navigate to="/investigate" replace />}
+              />
+
             </Route>
           </Routes>
         </BrowserRouter>
@@ -66,6 +114,7 @@ export const App: React.FC = () => {
     </QueryClientProvider>
   );
 };
+
 const ProtectedRoute: React.FC = () => {
   const { user, isLoading } = useAuth();
   const location = useLocation();
@@ -81,7 +130,7 @@ const ProtectedRoute: React.FC = () => {
   if (!user) {
     return (
       <Navigate
-        to="/login"
+        to="/investigate"
         replace
         state={{ from: location }}
       />
@@ -90,4 +139,5 @@ const ProtectedRoute: React.FC = () => {
 
   return <Outlet />;
 };
+
 export default App;
