@@ -1,14 +1,16 @@
+
 import { Router } from 'express';
 import { emergencyController } from '../controllers/emergencyController';
-import { optionalAuth } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 
 const router = Router();
 
-router.use(optionalAuth);
-
+// Public emergency triage
 router.post('/triage', emergencyController.triage);
-router.get('/contacts', emergencyController.getContacts);
-router.post('/contacts', emergencyController.addContact);
-router.delete('/contacts/:id', emergencyController.deleteContact);
+
+// Emergency contacts require authentication
+router.get('/contacts', requireAuth, emergencyController.getContacts);
+router.post('/contacts', requireAuth, emergencyController.addContact);
+router.delete('/contacts/:id', requireAuth, emergencyController.deleteContact);
 
 export default router;

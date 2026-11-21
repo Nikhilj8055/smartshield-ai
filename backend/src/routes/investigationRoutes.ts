@@ -2,7 +2,7 @@
 import { Router } from 'express';
 
 import { investigationController } from '../controllers/investigationController';
-import { optionalAuth } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 
 import {
   uploadMiddleware,
@@ -11,9 +11,8 @@ import {
 
 const router = Router();
 
-// Allow guest users and authenticated users.
-// Authentication is optional for investigation creation.
-router.use(optionalAuth);
+// All persistent investigation operations require authentication.
+router.use(requireAuth);
 
 // Create investigation
 router.post('/', investigationController.create);

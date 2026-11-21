@@ -1,10 +1,15 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Shield, Loader2, ArrowRight } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+
+const from =
+  (location.state as { from?: { pathname?: string } } | null)
+    ?.from?.pathname || '/dashboard';
   const { login, demoLogin } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,7 +23,7 @@ export const LoginPage: React.FC = () => {
 
     const success = await login(email, password);
     if (success) {
-      navigate('/dashboard');
+      navigate(from, { replace: true });
     } else {
       setError('Invalid email or password.');
       setLoading(false);
@@ -29,7 +34,7 @@ export const LoginPage: React.FC = () => {
     setLoading(true);
     const success = await demoLogin();
     if (success) {
-      navigate('/dashboard');
+      navigate(from, { replace: true });
     } else {
       setError('Demo login failed.');
       setLoading(false);

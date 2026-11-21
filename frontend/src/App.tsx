@@ -1,8 +1,16 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  Outlet,
+  useLocation,
+} from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './context/AuthContext';
 import { AppLayout } from './layouts/AppLayout';
+import { useAuth } from './context/AuthContext';
 
 // Pages
 import { LandingPage } from './pages/LandingPage';
@@ -34,8 +42,16 @@ export const App: React.FC = () => {
             <Route element={<AppLayout />}>
               <Route path="/" element={<LandingPage />} />
               <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/investigate" element={<InvestigationWorkspacePage />} />
-              <Route path="/investigation/:id" element={<InvestigationDetailPage />} />
+              <Route element={<ProtectedRoute />}>
+  <Route
+    path="/investigate"
+    element={<InvestigationWorkspacePage />}
+  />
+  <Route
+    path="/investigation/:id"
+    element={<InvestigationDetailPage />}
+  />
+</Route>
               <Route path="/before-you-pay" element={<BeforeYouPayPage />} />
               <Route path="/emergency" element={<EmergencyPage />} />
               <Route path="/discovery" element={<ScamDiscoveryPage />} />
@@ -50,5 +66,28 @@ export const App: React.FC = () => {
     </QueryClientProvider>
   );
 };
+const ProtectedRoute: React.FC = () => {
+  const { user, isLoading } = useAuth();
+  const location = useLocation();
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        Checking authentication...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ from: location }}
+      />
+    );
+  }
+
+  return <Outlet />;
+};
 export default App;

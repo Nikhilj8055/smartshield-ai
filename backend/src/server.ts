@@ -2,18 +2,36 @@
 import { app } from './app';
 import { config } from './config';
 import { logger } from './utils/logger';
+import { testDatabaseConnection, pool } from './database/connection';
 
 const PORT = config.port;
 
-const server = app.listen(PORT, () => {
-  logger.info(`SmartShield AI Engine running on http://localhost:${PORT}`);
-  logger.info(`API v1 Base URL: http://localhost:${PORT}/api/v1`);
-  logger.info(`Health check: http://localhost:${PORT}/api/v1/health`);
-});
-
+let server: ReturnType<typeof app.listen> | null = null;
 let isShuttingDown = false;
 
-function shutdown(signal: string): void {
+async function startServer(): Promise<void> {
+  try {
+    // Verify PostgreSQL before accepting requests.
+    await testDatabaseConnection();
+
+    server = app.listen(PORT, () => {
+      logger.info(`SmartShield AI Engine running on http://localhost:${PORT}`);
+      logger.info(`API v1 Base URL: http://localhost:${PORT}/api/v1`);
+      logger.info(`Health check: http://localhost:${PORT}/api/v1/health`);
+    });
+
+    server.on('error', (error) => {
+      logger.error('HTTP server error.', { error });
+      process.exitCode = 1;
+    });
+  } catch (error) {
+    logger.error('Database connection failed. Server startup aborted.', { error });
+    await pool.end();
+    process.exitCode = 1;
+  }
+}
+
+async function shutdown(signal: string): Promise<void> {
   if (isShuttingDown) return;
 
   isShuttingDown = true;
@@ -26,23 +44,27 @@ function shutdown(signal: string): void {
 
   forceExitTimer.unref();
 
-  server.close((error) => {
-    clearTimeout(forceExitTimer);
-
-    if (error) {
-      logger.error('Error during server shutdown.', { error });
-      process.exitCode = 1;
-      return;
+  try {
+    if (server) {
+      await new Promise<void>((resolve, reject) => {
+        server!.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
     }
 
+    await pool.end();
     logger.info('SmartShield AI Engine stopped successfully.');
-  });
+  } catch (error) {
+    logger.error('Error during server shutdown.', { error });
+    process.exitCode = 1;
+  } finally {
+    clearTimeout(forceExitTimer);
+  }
 }
 
-server.on('error', (error) => {
-  logger.error('HTTP server error.', { error });
-  process.exitCode = 1;
-});
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+void startServer();

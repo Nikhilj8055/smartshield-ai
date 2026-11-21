@@ -1,6 +1,6 @@
 import { Investigation, RecoveryCase, EmergencyContact, ScamPatternCluster } from '../types';
 
-const API_BASE = '/api/v1';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 function getHeaders(): HeadersInit {
   const token = localStorage.getItem('smartshield_token');

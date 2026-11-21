@@ -1,6 +1,6 @@
 
 import { v4 as uuidv4 } from 'uuid';
-
+import { COERCIVE_PATTERNS } from '../intelligence/threatFeeds';
 import { AgentResult } from './agentTypes';
 import {
   ThreatIndicator,
@@ -51,7 +51,7 @@ const patterns = [
     explanation: 'The message encourages remote access to the device.',
   },
   {
-    name: 'JOB_SCAM',
+    name: 'Part-Time Task & YouTube Like Scam',
     category: 'FINANCIAL',
     severity: 'HIGH',
     regex: /\b(part.time job|work from home|daily income|earn \₹?\d+|registration fee|task completion|like and subscribe to earn)\b/i,
@@ -117,7 +117,7 @@ function createIndicator(
     explanation: pattern.explanation,
     raw_matched_pattern: matchedText,
     source: 'MESSAGE_ANALYSIS_AGENT',
-    verification_status: 'UNVERIFIED' as ThreatIndicator['verification_status'],
+    verification_status: 'AUTOMATED_MATCH',
     created_at: new Date().toISOString(),
   };
 }
@@ -146,6 +146,27 @@ export const messageAnalysisAgent = {
         );
       }
     }
+    // Apply additional threat-intelligence patterns.
+for (const threatPattern of COERCIVE_PATTERNS) {
+  const match = text.match(threatPattern.regex);
+
+  if (!match) continue;
+
+  indicators.push({
+    id: uuidv4(),
+    investigation_id: investigationId,
+    evidence_id: evidenceId,
+    indicator_type: threatPattern.label,
+    category: threatPattern.category,
+    severity: threatPattern.severity,
+    confidence: 0.90,
+    explanation: threatPattern.explanation,
+    raw_matched_pattern: match[0],
+    source: 'THREAT_INTELLIGENCE_FEED',
+    verification_status: 'AUTOMATED_MATCH',
+    created_at: new Date().toISOString(),
+  });
+}
 
     const extractedEntities = extractEntities(text);
 

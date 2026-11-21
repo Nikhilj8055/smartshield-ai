@@ -1,10 +1,12 @@
+
 import { Router } from 'express';
 import { recoveryController } from '../controllers/recoveryController';
-import { optionalAuth } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 
 const router = Router();
 
-router.use(optionalAuth);
+// All recovery endpoints require authentication.
+router.use(requireAuth);
 
 router.post('/cases', recoveryController.createCase);
 router.get('/cases', recoveryController.listCases);

@@ -177,11 +177,23 @@ export class DeterministicRiskCalculator {
       aggregateScore += cappedScore;
     }
 
-    // 5. Calculate final score.
-    const finalScore = Math.min(
-      100,
-      Math.max(0, Math.round(aggregateScore))
-    );
+// 5. Calculate final score.
+const calculatedScore = Math.min(
+  100,
+  Math.max(0, Math.round(aggregateScore))
+);
+
+// High-confidence CRITICAL coercion must remain CRITICAL.
+const hasHighConfidenceCriticalCoercion = uniqueIndicators.some(
+  (indicator) =>
+    indicator.category === 'COERCION' &&
+    indicator.severity === 'CRITICAL' &&
+    this.normalizeConfidence(indicator.confidence) >= 85
+);
+
+const finalScore = hasHighConfidenceCriticalCoercion
+  ? Math.max(calculatedScore, 80)
+  : calculatedScore;
 
     // 6. Determine risk level.
     let riskLevel: RiskLevel;

@@ -19,7 +19,14 @@ export const emergencyController = {
 
   async getContacts(req: AuthenticatedRequest, res: Response) {
     try {
-      const userId = req.user?.id || '00000000-0000-0000-0000-000000000001';
+      const userId = req.user?.id;
+
+if (!userId) {
+  return res.status(401).json({
+    success: false,
+    error: 'Authentication required',
+  });
+}
       const contacts = await emergencyService.getContacts(userId);
       return res.status(200).json({ success: true, data: contacts });
     } catch (err: any) {
@@ -29,7 +36,14 @@ export const emergencyController = {
 
   async addContact(req: AuthenticatedRequest, res: Response) {
     try {
-      const userId = req.user?.id || '00000000-0000-0000-0000-000000000001';
+      const userId = req.user?.id;
+
+if (!userId) {
+  return res.status(401).json({
+    success: false,
+    error: 'Authentication required',
+  });
+}
       const { name, phone_number, relationship, consent_given } = req.body;
 
       if (!name || !phone_number || !relationship) {
@@ -51,7 +65,14 @@ export const emergencyController = {
 
   async deleteContact(req: AuthenticatedRequest, res: Response) {
     try {
-      const userId = req.user?.id || '00000000-0000-0000-0000-000000000001';
+      const userId = req.user?.id;
+
+if (!userId) {
+  return res.status(401).json({
+    success: false,
+    error: 'Authentication required',
+  });
+}
       const id = String(req.params.id);
       const success = await emergencyService.removeContact(id, userId);
       if (!success) {

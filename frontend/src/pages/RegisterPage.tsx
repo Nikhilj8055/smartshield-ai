@@ -89,7 +89,7 @@ export const RegisterPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-foreground mb-1 uppercase tracking-wider">Password (Min 6 chars)</label>
+            <label className="block text-xs font-semibold text-foreground mb-1 uppercase tracking-wider">Password (12–72 characters)</label>
             <input
               type="password"
               required

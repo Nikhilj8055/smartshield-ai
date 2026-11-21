@@ -127,7 +127,7 @@ export class UrlIntelligenceAgent {
     if (urlMeta.isLookalike) {
       addIndicator(
         'lookalike-domain',
-        'Potential Brand Impersonation',
+        'Potential Phishing / Typosquatting (Brand Impersonation)',
         'IMPERSONATION',
         'HIGH',
         75,

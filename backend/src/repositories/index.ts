@@ -13,202 +13,68 @@ import {
   ScamReport,
 } from '../types';
 
-import { v4 as uuidv4 } from 'uuid';
-import bcrypt from 'bcryptjs';
+
+import { pool } from '../database/connection';
 
 // In-Memory Database with Seed Data
 class DatabaseRepository {
-  public users: Map<string, UserProfile> = new Map();
-  public investigations: Map<string, Investigation> = new Map();
-  public evidence: Map<string, EvidenceItem> = new Map();
-  public threatIndicators: Map<string, ThreatIndicator> = new Map();
-  public relationships: Map<string, InvestigationRelationship> = new Map();
-  public riskAssessments: Map<string, RiskAssessment> = new Map();
-
-  public paymentInvestigations: Map<string, PaymentInvestigation> = new Map();
-  public emergencyContacts: Map<string, EmergencyContact> = new Map();
-  public recoveryCases: Map<string, RecoveryCase> = new Map();
-  public scamPatternClusters: Map<string, ScamPatternCluster> = new Map();
-  public scamReports: Map<string, ScamReport> = new Map();
-
-  constructor() {
-    this.seedInitialData();
-  }
-
-  // --------------------------------------------------
-  // SEED DATA
-  // --------------------------------------------------
-
-  private seedInitialData(): void {
-    const demoUserId = '00000000-0000-0000-0000-000000000001';
-
-    const demoPasswordHash = bcrypt.hashSync(
-      'SmartShield@2026',
-      10
-    );
-
-    const demoUser: UserProfile = {
-      id: demoUserId,
-      email: 'demo@smartshield.ai',
-      password_hash: demoPasswordHash,
-      full_name: 'Priya Sharma',
-      phone_number: '+919876543210',
-      role: 'user',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    this.users.set(demoUser.id, demoUser);
-
-    const clusters: ScamPatternCluster[] = [
-      {
-        id: '11111111-1111-1111-1111-111111111111',
-        cluster_name: 'Digital Arrest & Police Impersonation',
-        description:
-          'Scammers impersonate CBI, Mumbai Cyber Police, or ED via video calls claiming illegal parcels containing narcotics or money laundering.',
-        pattern_signature: 'sig_digital_arrest_cbi_parcel_v1',
-        risk_level: 'CRITICAL',
-        report_count: 142,
-        status: 'VERIFIED_PATTERN',
-        sample_indicators: [
-          'digital arrest',
-          'mumbai cyber crime',
-          'customs narcotics',
-          'skype interrogation',
-          'rbi verification deposit',
-        ],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: '22222222-2222-2222-2222-222222222222',
-        cluster_name: 'Urgent Electricity Bill Disconnection',
-        description:
-          'SMS/WhatsApp claiming power disconnection at 9:30 PM due to unpaid bill, with a fake mobile number or malicious APK download link.',
-        pattern_signature: 'sig_electricity_bill_disconnection_v1',
-        risk_level: 'HIGH',
-        report_count: 89,
-        status: 'VERIFIED_PATTERN',
-        sample_indicators: [
-          'power will be disconnected tonight',
-          'contact electricity officer',
-          'update electricity bill',
-          'download support apk',
-        ],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: '33333333-3333-3333-3333-333333333333',
-        cluster_name: 'Bank Account / PAN KYC Suspension Phishing',
-        description:
-          'SMS disguised as SBI/HDFC claiming bank account has been blocked due to pending PAN/Aadhaar KYC.',
-        pattern_signature: 'sig_bank_pan_kyc_suspension_v1',
-        risk_level: 'HIGH',
-        report_count: 215,
-        status: 'VERIFIED_PATTERN',
-        sample_indicators: [
-          'your bank account blocked',
-          'update pan card immediately',
-          'sbi-kyc-update',
-          'hdfc-secure-verify',
-        ],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: '44444444-4444-4444-4444-444444444444',
-        cluster_name: 'Part-Time YouTube/Hotel Review Task Scam',
-        description:
-          'Telegram/WhatsApp recruitment offering Rs 2000-5000/day for liking YouTube videos, escalating into frozen prepaid crypto traps.',
-        pattern_signature: 'sig_part_time_task_investment_v1',
-        risk_level: 'CRITICAL',
-        report_count: 310,
-        status: 'VERIFIED_PATTERN',
-        sample_indicators: [
-          'part time job earn 3000 daily',
-          'like youtube videos',
-          'telegram task group',
-          'frozen deposit task',
-        ],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: '55555555-5555-5555-5555-555555555555',
-        cluster_name: 'UPI Pay-To-Receive Money / OLX QR Scam',
-        description:
-          'Scammer pretends to purchase an item on OLX, sends a QR code claiming scanning or entering UPI PIN will receive money.',
-        pattern_signature: 'sig_upi_pay_to_receive_qr_v1',
-        risk_level: 'HIGH',
-        report_count: 188,
-        status: 'VERIFIED_PATTERN',
-        sample_indicators: [
-          'scan qr to receive money',
-          'enter upi pin to accept refund',
-          'military buyer olx',
-        ],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-    ];
-
-    for (const cluster of clusters) {
-      this.scamPatternClusters.set(cluster.id, cluster);
-    }
-
-    const demoContact: EmergencyContact = {
-      id: uuidv4(),
-      user_id: demoUserId,
-      name: 'Ramesh Sharma (Father)',
-      phone_number: '+919811223344',
-      relationship: 'Father',
-      is_active: true,
-      consent_given: true,
-      consent_timestamp: new Date().toISOString(),
-      created_at: new Date().toISOString(),
-    };
-
-    this.emergencyContacts.set(demoContact.id, demoContact);
-  }
 
   // --------------------------------------------------
   // USERS
   // --------------------------------------------------
 
+
   public async findUserByEmail(
     email: string
   ): Promise<UserProfile | null> {
-    for (const user of this.users.values()) {
-      if (user.email.toLowerCase() === email.toLowerCase()) {
-        return user;
-      }
-    }
+    const result = await pool.query(
+      `SELECT *
+     FROM profiles
+     WHERE LOWER(email) = LOWER($1)
+     LIMIT 1`,
+      [email]
+    );
 
-    return null;
+    return result.rows[0] || null;
   }
 
   public async findUserById(
     id: string
   ): Promise<UserProfile | null> {
-    return this.users.get(id) || null;
+    const result = await pool.query(
+      `SELECT *
+     FROM profiles
+     WHERE id = $1
+     LIMIT 1`,
+      [id]
+    );
+
+    return result.rows[0] || null;
   }
 
   public async createUser(
     user: Omit<UserProfile, 'id' | 'created_at' | 'updated_at'>
   ): Promise<UserProfile> {
-    const id = uuidv4();
+    const result = await pool.query(
+      `INSERT INTO profiles (
+      email,
+      password_hash,
+      full_name,
+      phone_number,
+      role
+    )
+    VALUES ($1, $2, $3, $4, $5)
+    RETURNING *`,
+      [
+        user.email,
+        user.password_hash,
+        user.full_name,
+        user.phone_number || null,
+        user.role,
+      ]
+    );
 
-    const newUser: UserProfile = {
-      ...user,
-      id,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    this.users.set(id, newUser);
-
-    return newUser;
+    return result.rows[0];
   }
 
   // --------------------------------------------------
@@ -218,113 +84,162 @@ class DatabaseRepository {
   public async createInvestigation(
     inv: Omit<Investigation, 'id' | 'created_at' | 'updated_at'>
   ): Promise<Investigation> {
-    const id = uuidv4();
+    const result = await pool.query(
+      `INSERT INTO investigations (
+      user_id,
+      title,
+      status,
+      overall_risk_level,
+      overall_risk_score,
+      confidence_score,
+      explanation_markdown,
+      recommended_actions,
+      missing_information
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    RETURNING *`,
+      [
+        inv.user_id,
+        inv.title,
+        inv.status,
+        inv.overall_risk_level,
+        inv.overall_risk_score,
+        inv.confidence_score,
+        inv.explanation_markdown,
+        JSON.stringify(inv.recommended_actions),
+        JSON.stringify(inv.missing_information),
+      ]
+    );
 
-    const created: Investigation = {
-      ...inv,
-      id,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    this.investigations.set(id, created);
-
-    return created;
+    return result.rows[0];
   }
-
   public async getInvestigationById(
     id: string
   ): Promise<Investigation | null> {
-    const inv = this.investigations.get(id);
+    const investigationResult = await pool.query(
+      `SELECT *
+     FROM investigations
+     WHERE id = $1
+     LIMIT 1`,
+      [id]
+    );
 
-    if (!inv) {
+    if (investigationResult.rows.length === 0) {
       return null;
     }
 
-    const evidenceList = Array.from(this.evidence.values())
-      .filter((e) => e.investigation_id === id);
-
-    const indicatorList = Array.from(this.threatIndicators.values())
-      .filter((i) => i.investigation_id === id);
-
-    const relationList = Array.from(this.relationships.values())
-      .filter((r) => r.investigation_id === id);
-
-    const risk = this.riskAssessments.get(id);
+    const [
+      evidenceResult,
+      indicatorResult,
+      relationshipResult,
+      riskResult,
+    ] = await Promise.all([
+      pool.query(
+        'SELECT * FROM evidence WHERE investigation_id = $1',
+        [id]
+      ),
+      pool.query(
+        'SELECT * FROM threat_indicators WHERE investigation_id = $1',
+        [id]
+      ),
+      pool.query(
+        'SELECT * FROM investigation_relationships WHERE investigation_id = $1',
+        [id]
+      ),
+      pool.query(
+        `SELECT * FROM risk_assessments
+       WHERE investigation_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+        [id]
+      ),
+    ]);
 
     return {
-      ...inv,
-      evidence: evidenceList,
-      indicators: indicatorList,
-      relationships: relationList,
-      riskAssessment: risk,
+      ...investigationResult.rows[0],
+      evidence: evidenceResult.rows,
+      indicators: indicatorResult.rows,
+      relationships: relationshipResult.rows,
+      riskAssessment: riskResult.rows[0] || undefined,
     };
   }
-
   public async listInvestigationsByUserId(
     userId: string
   ): Promise<Investigation[]> {
-    return Array.from(this.investigations.values())
-      .filter((inv) => inv.user_id === userId)
-      .sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() -
-          new Date(a.created_at).getTime()
-      );
+    const result = await pool.query(
+      `SELECT *
+     FROM investigations
+     WHERE user_id = $1
+     ORDER BY created_at DESC`,
+      [userId]
+    );
+
+    return result.rows;
   }
 
   public async updateInvestigation(
     id: string,
     updates: Partial<Investigation>
   ): Promise<Investigation | null> {
-    const existing = this.investigations.get(id);
+    const allowedFields = [
+      'title',
+      'status',
+      'overall_risk_level',
+      'overall_risk_score',
+      'confidence_score',
+      'explanation_markdown',
+      'recommended_actions',
+      'missing_information',
+    ] as const;
 
-    if (!existing) {
-      return null;
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    for (const field of allowedFields) {
+      const value = updates[field];
+
+      if (value !== undefined) {
+        values.push(
+          field === 'recommended_actions' ||
+            field === 'missing_information'
+            ? JSON.stringify(value)
+            : value
+        );
+
+        fields.push(`${field} = $${values.length}`);
+      }
     }
 
-    const updated: Investigation = {
-      ...existing,
-      ...updates,
-      updated_at: new Date().toISOString(),
-    };
+    if (fields.length === 0) {
+      const existing = await pool.query(
+        'SELECT * FROM investigations WHERE id = $1',
+        [id]
+      );
 
-    this.investigations.set(id, updated);
+      return existing.rows[0] || null;
+    }
 
-    return updated;
+    values.push(id);
+
+    const result = await pool.query(
+      `UPDATE investigations
+     SET ${fields.join(', ')}, updated_at = NOW()
+     WHERE id = $${values.length}
+     RETURNING *`,
+      values
+    );
+
+    return result.rows[0] || null;
   }
-
   public async deleteInvestigation(id: string): Promise<boolean> {
-    if (!this.investigations.has(id)) {
-      return false;
-    }
+    const result = await pool.query(
+      `DELETE FROM investigations
+     WHERE id = $1
+     RETURNING id`,
+      [id]
+    );
 
-    // Delete associated evidence.
-    for (const [evidenceId, evidence] of this.evidence.entries()) {
-      if (evidence.investigation_id === id) {
-        this.evidence.delete(evidenceId);
-      }
-    }
-
-    // Delete associated indicators.
-    for (const [indicatorId, indicator] of this.threatIndicators.entries()) {
-      if (indicator.investigation_id === id) {
-        this.threatIndicators.delete(indicatorId);
-      }
-    }
-
-    // Delete associated relationships.
-    for (const [relationshipId, relationship] of this.relationships.entries()) {
-      if (relationship.investigation_id === id) {
-        this.relationships.delete(relationshipId);
-      }
-    }
-
-    // Delete associated risk assessment.
-    this.riskAssessments.delete(id);
-
-    // Delete investigation.
-    return this.investigations.delete(id);
+    return result.rowCount !== null && result.rowCount > 0;
   }
 
   // --------------------------------------------------
@@ -334,26 +249,49 @@ class DatabaseRepository {
   public async addEvidence(
     ev: Omit<EvidenceItem, 'id' | 'created_at'>
   ): Promise<EvidenceItem> {
-    const id = uuidv4();
+    const result = await pool.query(
+      `INSERT INTO evidence (
+      investigation_id,
+      user_id,
+      evidence_type,
+      raw_content,
+      extracted_entities,
+      file_path,
+      file_hash,
+      mime_type,
+      reliability_score
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    RETURNING *`,
+      [
+        ev.investigation_id,
+        ev.user_id,
+        ev.evidence_type,
+        ev.raw_content ?? null,
+        JSON.stringify(ev.extracted_entities),
+        ev.file_path ?? null,
+        ev.file_hash ?? null,
+        ev.mime_type ?? null,
+        ev.reliability_score,
+      ]
+    );
 
-    const newEv: EvidenceItem = {
-      ...ev,
-      id,
-      created_at: new Date().toISOString(),
-    };
-
-    this.evidence.set(id, newEv);
-
-    return newEv;
+    return result.rows[0];
   }
 
   public async getEvidenceByInvestigation(
     investigationId: string
   ): Promise<EvidenceItem[]> {
-    return Array.from(this.evidence.values())
-      .filter((e) => e.investigation_id === investigationId);
-  }
+    const result = await pool.query(
+      `SELECT *
+     FROM evidence
+     WHERE investigation_id = $1
+     ORDER BY created_at ASC`,
+      [investigationId]
+    );
 
+    return result.rows;
+  }
   // --------------------------------------------------
   // THREAT INDICATORS
   // --------------------------------------------------
@@ -362,18 +300,65 @@ class DatabaseRepository {
     investigationId: string,
     indicators: ThreatIndicator[]
   ): Promise<void> {
-    // Remove old indicators belonging to this investigation.
-    for (const [id, indicator] of this.threatIndicators.entries()) {
-      if (indicator.investigation_id === investigationId) {
-        this.threatIndicators.delete(id);
-      }
-    }
+    const client = await pool.connect();
 
-    // Save the latest indicators.
-    for (const indicator of indicators) {
-      if (indicator.investigation_id === investigationId) {
-        this.threatIndicators.set(indicator.id, indicator);
+    try {
+      await client.query('BEGIN');
+
+      // Remove old indicators for this investigation.
+      await client.query(
+        `DELETE FROM threat_indicators
+       WHERE investigation_id = $1`,
+        [investigationId]
+      );
+
+      // Save the latest indicators.
+      for (const indicator of indicators) {
+        if (indicator.investigation_id !== investigationId) {
+          continue;
+        }
+
+        await client.query(
+          `INSERT INTO threat_indicators (
+          id,
+          investigation_id,
+          evidence_id,
+          indicator_type,
+          category,
+          severity,
+          confidence,
+          explanation,
+          raw_matched_pattern,
+          source,
+          verification_status
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          [
+            indicator.id,
+            indicator.investigation_id,
+            indicator.evidence_id ?? null,
+            indicator.indicator_type,
+            indicator.category,
+            indicator.severity,
+            Math.round(
+  indicator.confidence <= 1
+    ? indicator.confidence * 100
+    : indicator.confidence
+),
+            indicator.explanation,
+            indicator.raw_matched_pattern ?? null,
+            indicator.source,
+            indicator.verification_status
+          ]
+        );
       }
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -385,18 +370,61 @@ class DatabaseRepository {
     investigationId: string,
     relations: InvestigationRelationship[]
   ): Promise<void> {
-    // Remove old relationships belonging to this investigation.
-    for (const [id, relation] of this.relationships.entries()) {
-      if (relation.investigation_id === investigationId) {
-        this.relationships.delete(id);
-      }
-    }
+    const client = await pool.connect();
 
-    // Save the latest relationships.
-    for (const relation of relations) {
-      if (relation.investigation_id === investigationId) {
-        this.relationships.set(relation.id, relation);
+    try {
+      await client.query('BEGIN');
+
+      // Remove old relationships.
+      await client.query(
+        `DELETE FROM investigation_relationships
+       WHERE investigation_id = $1`,
+        [investigationId]
+      );
+
+      // Save the latest relationships.
+      for (const relation of relations) {
+        if (relation.investigation_id !== investigationId) {
+          continue;
+        }
+
+        await client.query(
+          `INSERT INTO investigation_relationships (
+          id,
+          investigation_id,
+          source_entity_id,
+          source_entity_type,
+          source_label,
+          target_entity_id,
+          target_entity_type,
+          target_label,
+          relationship_type,
+          confidence,
+          evidence_id
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          [
+            relation.id,
+            relation.investigation_id,
+            relation.source_entity_id,
+            relation.source_entity_type,
+            relation.source_label,
+            relation.target_entity_id,
+            relation.target_entity_type,
+            relation.target_label,
+            relation.relationship_type,
+            relation.confidence,
+            relation.evidence_id ?? null
+          ]
+        );
       }
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -407,9 +435,26 @@ class DatabaseRepository {
   public async saveRiskAssessment(
     assessment: RiskAssessment
   ): Promise<void> {
-    this.riskAssessments.set(
-      assessment.investigation_id,
-      assessment
+    await pool.query(
+      `INSERT INTO risk_assessments (
+      investigation_id,
+      calculation_version,
+      risk_score,
+      risk_level,
+      confidence,
+      factors,
+      raw_scores
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        assessment.investigation_id,
+        assessment.calculation_version,
+        assessment.risk_score,
+        assessment.risk_level,
+        assessment.confidence,
+        JSON.stringify(assessment.factors),
+        JSON.stringify(assessment.raw_scores)
+      ]
     );
   }
 
@@ -420,37 +465,59 @@ class DatabaseRepository {
   public async getEmergencyContacts(
     userId: string
   ): Promise<EmergencyContact[]> {
-    return Array.from(this.emergencyContacts.values())
-      .filter((contact) => contact.user_id === userId);
+    const result = await pool.query(
+      `SELECT *
+     FROM emergency_contacts
+     WHERE user_id = $1
+     ORDER BY created_at DESC`,
+      [userId]
+    );
+
+    return result.rows;
   }
 
   public async addEmergencyContact(
     contact: Omit<EmergencyContact, 'id' | 'created_at'>
   ): Promise<EmergencyContact> {
-    const id = uuidv4();
+    const result = await pool.query(
+      `INSERT INTO emergency_contacts (
+      user_id,
+      name,
+      phone_number,
+      relationship,
+      is_active,
+      consent_given,
+      consent_timestamp
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    RETURNING *`,
+      [
+        contact.user_id,
+        contact.name,
+        contact.phone_number,
+        contact.relationship,
+        contact.is_active,
+        contact.consent_given,
+        contact.consent_timestamp
+      ]
+    );
 
-    const newContact: EmergencyContact = {
-      ...contact,
-      id,
-      created_at: new Date().toISOString(),
-    };
-
-    this.emergencyContacts.set(id, newContact);
-
-    return newContact;
+    return result.rows[0];
   }
 
   public async removeEmergencyContact(
     id: string,
     userId: string
   ): Promise<boolean> {
-    const contact = this.emergencyContacts.get(id);
+    const result = await pool.query(
+      `DELETE FROM emergency_contacts
+     WHERE id = $1
+       AND user_id = $2
+     RETURNING id`,
+      [id, userId]
+    );
 
-    if (contact && contact.user_id === userId) {
-      return this.emergencyContacts.delete(id);
-    }
-
-    return false;
+    return result.rowCount !== null && result.rowCount > 0;
   }
 
   // --------------------------------------------------
@@ -460,77 +527,269 @@ class DatabaseRepository {
   public async createRecoveryCase(
     recoveryCase: Omit<RecoveryCase, 'id' | 'created_at' | 'updated_at'>
   ): Promise<RecoveryCase> {
-    const id = uuidv4();
+    const result = await pool.query(
+      `INSERT INTO recovery_cases (
+      user_id,
+      investigation_id,
+      case_number,
+      incident_date,
+      amount_lost,
+      transaction_reference,
+      bank_name,
+      status,
+      official_complaint_id,
+      notes,
+      timeline
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    RETURNING *,
+      amount_lost::double precision AS amount_lost`,
+      [
+        recoveryCase.user_id,
+        recoveryCase.investigation_id ?? null,
+        recoveryCase.case_number,
+        recoveryCase.incident_date,
+        recoveryCase.amount_lost,
+        recoveryCase.transaction_reference ?? null,
+        recoveryCase.bank_name ?? null,
+        recoveryCase.status,
+        recoveryCase.official_complaint_id ?? null,
+        recoveryCase.notes ?? null,
+        JSON.stringify(recoveryCase.timeline)
+      ]
+    );
 
-    const newCase: RecoveryCase = {
-      ...recoveryCase,
-      id,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    this.recoveryCases.set(id, newCase);
-
-    return newCase;
+    return result.rows[0];
   }
 
   public async getRecoveryCasesByUserId(
-    userId: string
-  ): Promise<RecoveryCase[]> {
-    return Array.from(this.recoveryCases.values())
-      .filter((recoveryCase) => recoveryCase.user_id === userId);
+  userId: string
+): Promise<RecoveryCase[]> {
+  const result = await pool.query(
+    `SELECT *,
+            amount_lost::double precision AS amount_lost
+     FROM recovery_cases
+     WHERE user_id = $1
+     ORDER BY created_at DESC`,
+    [userId]
+  );
+
+  return result.rows;
+}
+
+public async getRecoveryCaseById(
+  id: string,
+  userId: string
+): Promise<RecoveryCase | null> {
+  const result = await pool.query(
+    `SELECT *,
+            amount_lost::double precision AS amount_lost
+     FROM recovery_cases
+     WHERE id = $1 AND user_id = $2
+     LIMIT 1`,
+    [id, userId]
+  );
+
+  return result.rows[0] || null;
+}
+public async updateRecoveryCase(
+  id: string,
+  userId: string,
+  updates: Partial<RecoveryCase>
+): Promise<RecoveryCase | null> {
+
+  const effectiveUpdates = { ...updates };
+
+// Automatically synchronize the recovery timeline
+if (updates.status && !updates.timeline) {
+ const currentCase = await pool.query(
+  `SELECT timeline
+   FROM recovery_cases
+   WHERE id = $1 AND user_id = $2`,
+  [id, userId]
+);
+
+  if (currentCase.rows.length === 0) {
+    return null;
   }
 
-  public async getRecoveryCaseById(
-    id: string
-  ): Promise<RecoveryCase | null> {
-    return this.recoveryCases.get(id) || null;
+  let timeline = currentCase.rows[0].timeline;
+
+  if (typeof timeline === 'string') {
+    timeline = JSON.parse(timeline);
   }
 
-  public async updateRecoveryCase(
-    id: string,
-    updates: Partial<RecoveryCase>
-  ): Promise<RecoveryCase | null> {
-    const existing = this.recoveryCases.get(id);
+  if (!Array.isArray(timeline)) {
+    timeline = [];
+  }
 
-    if (!existing) {
-      return null;
+  // Add Evidence Collection to older recovery cases
+  const evidenceExists = timeline.some(
+    (item: any) =>
+      item.step.includes('Evidence Collection')
+  );
+
+  if (!evidenceExists) {
+    timeline.push({
+      date: new Date().toISOString(),
+      step: 'Evidence Collection',
+      description:
+        'Collect and preserve transaction screenshots, bank statements, SMS alerts, call logs, and other relevant evidence.',
+      completed: false,
+    });
+  }
+
+  // Status-to-timeline mapping using step names
+const statusToStep: Record<string, string> = {
+  EVIDENCE_COLLECTED: 'Evidence Collection',
+  BANK_CONTACTED: 'Bank Fraud Escalation',
+  REPORTED: 'Official National Cybercrime Portal FIR',
+};
+
+  const targetStep = statusToStep[updates.status];
+
+  if (targetStep) {
+    timeline = timeline.map((item: any) =>
+      item.step.includes(targetStep)
+        ? {
+            ...item,
+            completed: true,
+            date: new Date().toISOString(),
+          }
+        : item
+    );
+  }
+
+  // Canonical timeline order
+  const stepOrder = [
+    'Incident Documented',
+    'Evidence Collection',
+    'Immediate Account & Device Quarantine',
+    'National Cybercrime Helpline (1930) Call',
+    'Bank Fraud Escalation',
+    'Official National Cybercrime Portal FIR',
+    'Nodal Officer Follow-Up',
+  ];
+
+  timeline.sort((a: any, b: any) => {
+    const indexA = stepOrder.findIndex(
+      step => a.step.includes(step)
+    );
+
+    const indexB = stepOrder.findIndex(
+      step => b.step.includes(step)
+    );
+
+    return (
+      (indexA === -1 ? 999 : indexA) -
+      (indexB === -1 ? 999 : indexB)
+    );
+  });
+
+  // Normalize numbering
+  timeline = timeline.map((item: any, index: number) => {
+    const cleanStep = item.step.replace(/^\d+\.\s*/, '');
+
+    return {
+      ...item,
+      step: `${index + 1}. ${cleanStep}`,
+    };
+  });
+
+  effectiveUpdates.timeline = timeline;
+}
+
+  const columnMap: Record<string, string> = {
+    investigation_id: 'investigation_id',
+    case_number: 'case_number',
+    incident_date: 'incident_date',
+    amount_lost: 'amount_lost',
+    transaction_reference: 'transaction_reference',
+    bank_name: 'bank_name',
+    status: 'status',
+    official_complaint_id: 'official_complaint_id',
+    notes: 'notes',
+    timeline: 'timeline'
+  };
+
+  const values: unknown[] = [];
+  const setClauses: string[] = [];
+
+  for (const [key, value] of Object.entries(effectiveUpdates)) {
+    const column = columnMap[key];
+
+    if (!column) {
+      continue;
     }
 
-    const updated: RecoveryCase = {
-      ...existing,
-      ...updates,
-      updated_at: new Date().toISOString(),
-    };
+    values.push(
+      key === 'timeline' ? JSON.stringify(value) : value
+    );
 
-    this.recoveryCases.set(id, updated);
-
-    return updated;
+    setClauses.push(`${column} = $${values.length}`);
   }
 
+  setClauses.push('updated_at = NOW()');
+  values.push(id);
+  const idParameter = values.length;
+
+  values.push(userId);
+  const userIdParameter = values.length;
+
+  const result = await pool.query(
+    `UPDATE recovery_cases
+     SET ${setClauses.join(', ')}
+     WHERE id = $${idParameter}
+       AND user_id = $${userIdParameter}
+     RETURNING *,
+       amount_lost::double precision AS amount_lost`,
+    values
+  );
+
+  return result.rows[0] || null;
+}
   // --------------------------------------------------
   // SCAM PATTERNS & REPORTS
   // --------------------------------------------------
 
   public async listPatternClusters(): Promise<ScamPatternCluster[]> {
-    return Array.from(this.scamPatternClusters.values());
-  }
+  const result = await pool.query(
+    `SELECT *
+     FROM scam_pattern_clusters
+     ORDER BY report_count DESC, created_at DESC`
+  );
 
-  public async createScamReport(
-    report: Omit<ScamReport, 'id' | 'created_at'>
-  ): Promise<ScamReport> {
-    const id = uuidv4();
+  return result.rows;
+}
 
-    const newReport: ScamReport = {
-      ...report,
-      id,
-      created_at: new Date().toISOString(),
-    };
+public async createScamReport(
+  report: Omit<ScamReport, 'id' | 'created_at'>
+): Promise<ScamReport> {
+  const result = await pool.query(
+    `INSERT INTO scam_reports (
+      user_id,
+      cluster_id,
+      anonymized_text,
+      normalized_text,
+      extracted_indicators,
+      consent_given,
+      verification_status
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    RETURNING *`,
+    [
+      report.user_id ?? null,
+      report.cluster_id ?? null,
+      report.anonymized_text,
+      report.normalized_text,
+      JSON.stringify(report.extracted_indicators),
+      report.consent_given,
+      report.verification_status
+    ]
+  );
 
-    this.scamReports.set(id, newReport);
-
-    return newReport;
-  }
+  return result.rows[0];
+}
 }
 
 export const db = new DatabaseRepository();

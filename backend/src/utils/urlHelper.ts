@@ -267,7 +267,7 @@ export function parseAndNormalizeUrl(
 
     // 8. Return analysis
     return {
-      rawUrl,
+      rawUrl: rawInput,
       normalizedUrl: parsed.toString(),
       domain: hostnameParts.slice(-2).join('.'),
       hostname,

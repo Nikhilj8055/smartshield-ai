@@ -9,7 +9,7 @@ import { AuthenticatedRequest } from '../middleware/auth';
 
 const registerSchema = z.object({
   email: z.string().trim().email().transform((value) => value.toLowerCase()),
-  password: z.string().min(6),
+  password: z.string().min(12).max(72),
   full_name: z.string().trim().min(2),
   phone_number: z.string().optional(),
 });
