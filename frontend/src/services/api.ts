@@ -1,20 +1,29 @@
-import { Investigation, RecoveryCase, EmergencyContact, ScamPatternCluster } from '../types';
+
+import {
+  Investigation,
+  RecoveryCase,
+  EmergencyContact,
+  ScamPatternCluster,
+} from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 function getHeaders(): HeadersInit {
   const token = localStorage.getItem('smartshield_token');
+
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
   };
+
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
+
   return headers;
 }
 
 export const api = {
-  // Auth
+  // Authentication
   async login(email: string, password: string) {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
@@ -28,7 +37,12 @@ export const api = {
     const res = await fetch(`${API_BASE}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, full_name: fullName, phone_number: phone }),
+      body: JSON.stringify({
+        email,
+        password,
+        full_name: fullName,
+        phone_number: phone,
+      }),
     });
     return res.json();
   },
@@ -40,7 +54,7 @@ export const api = {
     return res.json();
   },
 
-  // Investigations
+  // Existing database investigations
   async listInvestigations(): Promise<{ success: boolean; data: Investigation[] }> {
     const res = await fetch(`${API_BASE}/investigations`, {
       headers: getHeaders(),
@@ -67,11 +81,21 @@ export const api = {
   async addEvidence(investigationId: string, formData: FormData) {
     const token = localStorage.getItem('smartshield_token');
     const headers: HeadersInit = {};
+
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     const res = await fetch(`${API_BASE}/investigations/${investigationId}/evidence`, {
       method: 'POST',
       headers,
+      body: formData,
+    });
+    return res.json();
+  },
+
+  // Guest Investigation - No login or database persistence
+  async guestInvestigate(formData: FormData) {
+    const res = await fetch(`${API_BASE}/analyze/investigate`, {
+      method: 'POST',
       body: formData,
     });
     return res.json();
@@ -99,6 +123,7 @@ export const api = {
   async analyzeScreenshot(formData: FormData) {
     const token = localStorage.getItem('smartshield_token');
     const headers: HeadersInit = {};
+
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     const res = await fetch(`${API_BASE}/analyze/screenshot`, {
@@ -109,7 +134,7 @@ export const api = {
     return res.json();
   },
 
-  // Before-You-Pay
+  // Before You Pay
   async checkPayment(payload: {
     upiId?: string;
     qrPayload?: string;
@@ -126,7 +151,7 @@ export const api = {
     return res.json();
   },
 
-  // Emergency / Coercion
+  // Emergency
   async triageEmergency(text: string) {
     const res = await fetch(`${API_BASE}/emergency/triage`, {
       method: 'POST',

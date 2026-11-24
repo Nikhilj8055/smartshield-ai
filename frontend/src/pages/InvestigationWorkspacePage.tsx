@@ -5,119 +5,117 @@ import {
   MessageSquare,
   Globe,
   Camera,
-  CreditCard,
   Shield,
   Loader2,
   ArrowRight,
+  X,
 } from 'lucide-react';
 
 import { api } from '../services/api';
 
-type EvidenceTab = 'MESSAGE' | 'URL' | 'SCREENSHOT' | 'UPI';
-
 export const InvestigationWorkspacePage: React.FC = () => {
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<EvidenceTab>('MESSAGE');
   const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
+  const [message, setMessage] = useState('');
+  const [url, setUrl] = useState('');
   const [file, setFile] = useState<File | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const handleTabChange = (tab: EvidenceTab) => {
-    setActiveTab(tab);
-    setContent('');
-    setFile(null);
-    setError(null);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    setLoading(true);
     setError(null);
 
-    try {
-      // Validate input before creating an investigation.
-      if (activeTab === 'SCREENSHOT' && !file) {
-        setError('Please upload a screenshot image.');
-        return;
-      }
+    const cleanMessage = message.trim();
+    const cleanUrl = url.trim();
 
-      if (activeTab !== 'SCREENSHOT' && !content.trim()) {
-        setError('Please provide the evidence to investigate.');
-        return;
-      }
+    // At least one evidence source is required.
+    if (!cleanMessage && !cleanUrl && !file) {
+      setError(
+        'Please provide at least one evidence source: message, URL or screenshot.'
+      );
+      return;
+    }
 
-      if (activeTab === 'URL') {
-        let parsedUrl: URL;
-
-        try {
-          parsedUrl = new URL(content.trim());
-        } catch {
-          setError('Please enter a valid complete URL, including https:// or http://.');
-          return;
-        }
+    // Validate URL.
+    if (cleanUrl) {
+      try {
+        const parsedUrl = new URL(cleanUrl);
 
         if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
           setError('Only HTTP and HTTPS URLs are supported.');
           return;
         }
-      }
-
-      // Create the investigation with its initial evidence.
-      // The backend orchestrator dispatches the appropriate specialist agent.
-      const investigationTitle =
-        title.trim() || `${activeTab} Scam Investigation`;
-
-      const initialContent =
-        activeTab === 'SCREENSHOT'
-          ? undefined
-          : content.trim();
-
-      const invRes = await api.createInvestigation(
-        investigationTitle,
-        activeTab,
-        initialContent
-      );
-
-      if (!invRes?.success || !invRes?.data?.id) {
-        throw new Error(
-          invRes?.error || 'Failed to create investigation.'
+      } catch {
+        setError(
+          'Please enter a valid complete URL, including https:// or http://.'
         );
+        return;
+      }
+    }
+
+    // Validate screenshot type.
+    if (file) {
+      const allowedTypes = [
+        'image/png',
+        'image/jpeg',
+        'image/webp',
+      ];
+
+      if (!allowedTypes.includes(file.type)) {
+        setError('Only PNG, JPEG and WebP images are supported.');
+        return;
       }
 
-      const investigationId = invRes.data.id;
+      if (file.size > 10 * 1024 * 1024) {
+        setError('Screenshot size must be less than 10 MB.');
+        return;
+      }
+    }
 
-      // Screenshots are attached after the investigation is created.
-      if (activeTab === 'SCREENSHOT' && file) {
-        const formData = new FormData();
+    setLoading(true);
 
+    try {
+      // Prepare one request containing all available evidence.
+      const formData = new FormData();
+
+      if (cleanMessage) {
+        formData.append('message', cleanMessage);
+      }
+
+      if (cleanUrl) {
+        formData.append('url', cleanUrl);
+      }
+
+      if (file) {
         formData.append('file', file);
-        formData.append('type', 'SCREENSHOT');
-
-        if (content.trim()) {
-          formData.append('content', content.trim());
-        }
-
-        const evidenceRes = await api.addEvidence(
-          investigationId,
-          formData
-        );
-
-        if (!evidenceRes?.success) {
-          throw new Error(
-            evidenceRes?.error || 'Screenshot upload failed.'
-          );
-        }
       }
 
-      // Open the saved investigation dossier.
-      navigate(`/investigation/${investigationId}`);
+      // Direct guest investigation.
+      // No login, database investigation creation or saved evidence required.
+      const response = await api.guestInvestigate(formData);
+
+      if (!response?.success || !response?.data) {
+        throw new Error(
+          response?.message ||
+          response?.error ||
+          'Investigation could not be completed.'
+        );
+      }
+
+      // Open the guest results page with the returned investigation.
+      navigate('/guest-results', {
+        state: {
+          result: response.data,
+          title: title.trim() || 'Scam Investigation',
+        },
+      });
 
     } catch (err: unknown) {
-      console.error('Investigation submission failed:', err);
+      console.error('Guest investigation failed:', err);
 
       setError(
         err instanceof Error
@@ -131,82 +129,80 @@ export const InvestigationWorkspacePage: React.FC = () => {
 
   return (
     <div className="max-w-3xl mx-auto space-y-8">
+
+      {/* Header */}
       <div className="text-center space-y-2">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
           Start Scam Investigation
         </h1>
 
         <p className="text-xs sm:text-sm text-muted max-w-lg mx-auto">
-          Submit suspicious messages, lookalike links, chat screenshots,
-          or UPI requests for multi-agent evaluation.
+          Submit suspicious messages, lookalike links and chat screenshots
+          together for multi-agent investigation and cross-channel analysis.
         </p>
       </div>
 
+      {/* Investigation Workspace */}
       <div className="bg-surface rounded-apple border border-border p-6 sm:p-8 shadow-subtle space-y-6">
 
-        {/* Evidence Selection */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1 bg-background rounded-apple-sm border border-border">
+        {/* Evidence Overview */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
 
-          <button
-            type="button"
-            onClick={() => handleTabChange('MESSAGE')}
-            className={`flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'MESSAGE'
-                ? 'bg-surface text-foreground shadow-xs border border-border'
-                : 'text-muted hover:text-foreground'
-            }`}
-          >
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>Message / SMS</span>
-          </button>
+          <div className="flex items-center gap-3 p-3 rounded-apple-sm bg-background border border-border">
+            <MessageSquare className="w-5 h-5 text-accent" />
+            <div>
+              <p className="text-xs font-semibold text-foreground">
+                Message Analysis
+              </p>
+              <p className="text-[10px] text-muted">
+                SMS, WhatsApp, Email
+              </p>
+            </div>
+          </div>
 
-          <button
-            type="button"
-            onClick={() => handleTabChange('URL')}
-            className={`flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'URL'
-                ? 'bg-surface text-foreground shadow-xs border border-border'
-                : 'text-muted hover:text-foreground'
-            }`}
-          >
-            <Globe className="w-3.5 h-3.5" />
-            <span>Link / URL</span>
-          </button>
+          <div className="flex items-center gap-3 p-3 rounded-apple-sm bg-background border border-border">
+            <Globe className="w-5 h-5 text-accent" />
+            <div>
+              <p className="text-xs font-semibold text-foreground">
+                URL Analysis
+              </p>
+              <p className="text-[10px] text-muted">
+                Suspicious websites
+              </p>
+            </div>
+          </div>
 
-          <button
-            type="button"
-            onClick={() => handleTabChange('SCREENSHOT')}
-            className={`flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'SCREENSHOT'
-                ? 'bg-surface text-foreground shadow-xs border border-border'
-                : 'text-muted hover:text-foreground'
-            }`}
-          >
-            <Camera className="w-3.5 h-3.5" />
-            <span>Screenshot</span>
-          </button>
+          <div className="flex items-center gap-3 p-3 rounded-apple-sm bg-background border border-border">
+            <Camera className="w-5 h-5 text-accent" />
+            <div>
+              <p className="text-xs font-semibold text-foreground">
+                Screenshot Analysis
+              </p>
+              <p className="text-[10px] text-muted">
+                Images and conversations
+              </p>
+            </div>
+          </div>
 
-          <button
-            type="button"
-            onClick={() => handleTabChange('UPI')}
-            className={`flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'UPI'
-                ? 'bg-surface text-foreground shadow-xs border border-border'
-                : 'text-muted hover:text-foreground'
-            }`}
-          >
-            <CreditCard className="w-3.5 h-3.5" />
-            <span>UPI / Payment</span>
-          </button>
         </div>
 
+        {/* Error */}
         {error && (
-          <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-apple-sm">
-            {error}
+          <div className="flex items-start justify-between gap-3 p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-apple-sm">
+            <span>{error}</span>
+
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className="shrink-0"
+              aria-label="Dismiss error"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-6">
 
           {/* Investigation Title */}
           <div>
@@ -219,96 +215,99 @@ export const InvestigationWorkspacePage: React.FC = () => {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Suspicious SBI KYC SMS or OLX Buyer QR"
+              maxLength={150}
               className="w-full px-3.5 py-2.5 bg-background border border-border rounded-apple-sm text-sm text-foreground focus:outline-none focus:border-accent"
             />
           </div>
 
-          {/* Message */}
-          {activeTab === 'MESSAGE' && (
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5 uppercase tracking-wider">
-                Suspicious Message Content
-              </label>
+          {/* Message Evidence */}
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-xs font-semibold text-foreground uppercase tracking-wider">
+              <MessageSquare className="w-4 h-4 text-accent" />
+              Suspicious Message
+              <span className="text-muted font-normal normal-case tracking-normal">
+                (Optional)
+              </span>
+            </label>
 
-              <textarea
-                rows={5}
-                required
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="Paste full SMS, WhatsApp message, Telegram recruitment text, or email body..."
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-apple-sm text-sm text-foreground focus:outline-none focus:border-accent resize-none font-mono text-xs leading-relaxed"
-              />
-            </div>
-          )}
+            <textarea
+              rows={5}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              maxLength={10000}
+              placeholder="Paste suspicious SMS, WhatsApp messages, Telegram recruitment messages or email content..."
+              className="w-full px-3.5 py-2.5 bg-background border border-border rounded-apple-sm text-sm text-foreground focus:outline-none focus:border-accent resize-none font-mono text-xs leading-relaxed"
+            />
+          </div>
 
-          {/* URL */}
-          {activeTab === 'URL' && (
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5 uppercase tracking-wider">
-                Website or Link Address
-              </label>
+          {/* URL Evidence */}
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-xs font-semibold text-foreground uppercase tracking-wider">
+              <Globe className="w-4 h-4 text-accent" />
+              Suspicious URL
+              <span className="text-muted font-normal normal-case tracking-normal">
+                (Optional)
+              </span>
+            </label>
 
-              <input
-                type="url"
-                required
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="https://sbi-kyc-update.example.com/verify"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-apple-sm text-sm text-foreground focus:outline-none focus:border-accent font-mono text-xs"
-              />
-            </div>
-          )}
+            <input
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://example.com/verify"
+              className="w-full px-3.5 py-2.5 bg-background border border-border rounded-apple-sm text-sm text-foreground focus:outline-none focus:border-accent font-mono text-xs"
+            />
+          </div>
 
-          {/* Screenshot */}
-          {activeTab === 'SCREENSHOT' && (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-foreground mb-1.5 uppercase tracking-wider">
-                  Upload Screenshot Image
-                </label>
+          {/* Screenshot Evidence */}
+          <div className="space-y-3">
+            <label className="flex items-center gap-2 text-xs font-semibold text-foreground uppercase tracking-wider">
+              <Camera className="w-4 h-4 text-accent" />
+              Screenshot Evidence
+              <span className="text-muted font-normal normal-case tracking-normal">
+                (Optional)
+              </span>
+            </label>
 
-                <input
-                  type="file"
-                  required
-                  accept="image/png,image/jpeg,image/jpg,image/webp"
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
-                  className="w-full text-xs text-muted file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-accent-subtle file:text-accent hover:file:bg-accent/20 cursor-pointer"
-                />
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              className="w-full text-xs text-muted file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-accent-subtle file:text-accent hover:file:bg-accent/20 cursor-pointer"
+            />
+
+            {file && (
+              <div className="flex items-center justify-between gap-3 p-3 rounded-apple-sm bg-background border border-border">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-foreground truncate">
+                    {file.name}
+                  </p>
+                  <p className="text-[10px] text-muted">
+                    {(file.size / (1024 * 1024)).toFixed(2)} MB
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setFile(null)}
+                  className="text-muted hover:text-red-500"
+                  aria-label="Remove screenshot"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
+            )}
+          </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-foreground mb-1.5 uppercase tracking-wider">
-                  Optional Notes or Observed Text
-                </label>
-
-                <textarea
-                  rows={3}
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  placeholder="Add context or manually transcribed text from the image..."
-                  className="w-full px-3.5 py-2.5 bg-background border border-border rounded-apple-sm text-sm text-foreground focus:outline-none focus:border-accent resize-none text-xs"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* UPI */}
-          {activeTab === 'UPI' && (
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5 uppercase tracking-wider">
-                UPI ID or Payment Details
-              </label>
-
-              <input
-                type="text"
-                required
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="recipient@okhdfcbank or merchant@ybl"
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-apple-sm text-sm text-foreground focus:outline-none focus:border-accent font-mono text-xs"
-              />
-            </div>
-          )}
+          {/* Information */}
+          <div className="p-3 bg-background border border-border rounded-apple-sm">
+            <p className="text-[11px] text-muted leading-relaxed">
+              <strong className="text-foreground">Investigation tip:</strong>{' '}
+              Submit multiple evidence sources together whenever possible.
+              SmartShield AI can then examine the submitted evidence collectively
+              and identify relationships between suspicious signals.
+            </p>
+          </div>
 
           {/* Submit */}
           <div className="pt-2">

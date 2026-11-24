@@ -1,6 +1,9 @@
 
 import { Router } from 'express';
+
 import { analysisController } from '../controllers/analysisController';
+import { guestInvestigationController } from '../controllers/guestInvestigationController';
+
 import {
   uploadMiddleware,
   validateUploadedImage,
@@ -8,24 +11,36 @@ import {
 
 const router = Router();
 
-// Message analysis
+// ========================================
+// PHASE 1: INDIVIDUAL ANALYSIS ENDPOINTS
+// ========================================
+
 router.post(
   '/message',
   analysisController.analyzeMessage
 );
 
-// URL analysis
 router.post(
   '/url',
   analysisController.analyzeUrl
 );
 
-// Screenshot analysis
 router.post(
   '/screenshot',
   uploadMiddleware.single('file'),
   validateUploadedImage,
   analysisController.analyzeScreenshot
+);
+
+// ========================================
+// PHASE 2: UNIFIED GUEST INVESTIGATION
+// ========================================
+
+router.post(
+  '/investigate',
+  uploadMiddleware.single('file'),
+  validateUploadedImage,
+  guestInvestigationController.analyze
 );
 
 export default router;
